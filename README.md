@@ -1,8 +1,8 @@
-<p align="center">
-  <img src="logo.png" alt="pi-mem" width="300" />
-</p>
-
-# pi-mem
+<h1 align="center">
+  <img src="logo.png" alt="" width="80" valign="middle" />
+  &nbsp;
+  pi-mem
+</h1>
 
 Plain-Markdown memory system for [pi](https://github.com/mariozechner/pi-coding-agent). No embeddings, no vector search — just files on disk injected into context. Inspired by [OpenClaw](https://openclaw.ai)'s approach to agent memory.
 
