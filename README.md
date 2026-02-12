@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="logo.png" alt="pi-mem" width="300" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logo-dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="logo.png" />
+    <img src="logo.png" alt="pi-mem" width="300" />
+  </picture>
 </p>
 <h1 align="center">pi-mem</h1>
 <p align="center"><em>surprisingly useful daily memory for the <a href="https://pi.dev/">pi</a> coding agent</em></p>
