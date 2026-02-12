@@ -1,5 +1,5 @@
 {
-  "name": "@skyfallsin/pi-memory",
+  "name": "@skyfallsin/pi-mem",
   "version": "1.0.0",
   "description": "Pi coding agent extension for plain-Markdown memory system — long-term memory, daily logs, and scratchpad checklist",
   "main": "index.ts",
@@ -16,12 +16,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/skyfallsin/pi-memory.git"
+    "url": "https://github.com/skyfallsin/pi-mem.git"
   },
   "bugs": {
-    "url": "https://github.com/skyfallsin/pi-memory/issues"
+    "url": "https://github.com/skyfallsin/pi-mem/issues"
   },
-  "homepage": "https://github.com/skyfallsin/pi-memory#readme",
+  "homepage": "https://github.com/skyfallsin/pi-mem#readme",
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": ">=0.0.1",
     "@mariozechner/pi-ai": ">=0.0.1",

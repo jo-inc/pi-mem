@@ -1,6 +1,6 @@
-# pi-memory
+# pi-mem
 
-Plain-Markdown memory system for [pi](https://github.com/nicholasgasior/pi-coding-agent). No embeddings, no vector search — just files on disk injected into context.
+Plain-Markdown memory system for [pi](https://github.com/mariozechner/pi-coding-agent). No embeddings, no vector search — just files on disk injected into context.
 
 ## Layout
 
@@ -38,17 +38,17 @@ Symlink or clone into your pi extensions directory:
 
 ```bash
 # Clone
-git clone https://github.com/skyfallsin/pi-memory.git ~/personal/workspace/pi-memory
+git clone https://github.com/skyfallsin/pi-mem.git ~/personal/workspace/pi-mem
 
 # Symlink into pi extensions
-ln -sf ~/personal/workspace/pi-memory ~/.pi/agent/extensions/memory
+ln -sf ~/personal/workspace/pi-mem ~/.pi/agent/extensions/memory
 ```
 
 Or add as a submodule in your pi-agent-config repo:
 
 ```bash
 cd ~/.pi/agent
-git submodule add https://github.com/skyfallsin/pi-memory.git extensions/memory
+git submodule add https://github.com/skyfallsin/pi-mem.git extensions/memory
 ```
 
 ## License
