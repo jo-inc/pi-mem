@@ -1,10 +1,9 @@
-<h1 align="center">
-  <img src="logo.png" alt="" width="80" valign="middle" />
-  &nbsp;
-  pi-mem
-</h1>
-
-Plain-Markdown memory system for [pi](https://pi.dev/). No embeddings, no vector search — just files on disk injected into context. Inspired by [OpenClaw](https://openclaw.ai)'s approach to agent memory.
+<p align="center">
+  <img src="logo.png" alt="pi-mem" width="300" />
+</p>
+<h1 align="center">pi-mem</h1>
+<p align="center"><em>surprisingly useful daily memory for the <a href="https://pi.dev/">pi</a> coding agent</em></p>
+<p align="center">Inspired by <a href="https://openclaw.ai">OpenClaw</a>'s approach to agent memory.</p>
 
 ## Layout
 
