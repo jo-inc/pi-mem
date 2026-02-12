@@ -3,10 +3,11 @@
 </p>
 <h1 align="center">pi-mem</h1>
 <p align="center"><em>surprisingly useful daily memory for the <a href="https://pi.dev/">pi</a> coding agent</em></p>
+<p align="center"><sub><a href="https://pradeep.md/2026/02/11/pi-mem.html">Read the blog post</a></sub></p>
 
 ---
 
-<p align="center"><a href="https://pradeep.md/2026/02/11/pi-mem.html">Blog post</a> · <sub>Inspired by <a href="https://openclaw.ai">OpenClaw</a>'s approach to agent memory.</sub></p>
+<p align="center"><sub>Inspired by <a href="https://openclaw.ai">OpenClaw</a>'s approach to agent memory.</sub></p>
 
 ## Layout
 
