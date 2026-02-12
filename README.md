@@ -45,21 +45,8 @@ An auto-generated "Last 24h" summary is shown on session start and switch:
 
 ## Installation
 
-Symlink or clone into your pi extensions directory:
-
 ```bash
-# Clone
-git clone https://github.com/skyfallsin/pi-mem.git ~/personal/workspace/pi-mem
-
-# Symlink into pi extensions
-ln -sf ~/personal/workspace/pi-mem ~/.pi/agent/extensions/memory
-```
-
-Or add as a submodule in your pi-agent-config repo:
-
-```bash
-cd ~/.pi/agent
-git submodule add https://github.com/skyfallsin/pi-mem.git extensions/memory
+pi install git:github.com/skyfallsin/pi-mem
 ```
 
 ## License
