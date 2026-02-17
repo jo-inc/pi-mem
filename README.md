@@ -15,25 +15,45 @@
 
 ## Layout
 
-Memory files live under `~/.pi/agent/memory/`:
+Memory files live under `~/.pi/agent/memory/` (override with `PI_MEMORY_DIR`):
 
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
 | `MEMORY.md` | Curated long-term memory (decisions, preferences, durable facts) |
 | `SCRATCHPAD.md` | Checklist of things to keep in mind / fix later |
 | `daily/YYYY-MM-DD.md` | Daily append-only log (today + yesterday loaded at session start) |
+| `notes/*.md` | LLM-created files (lessons, self-review, reference material, etc.) |
+
+Identity and behavioral files (e.g. `SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`) can also live in the memory directory and be injected into context via `PI_CONTEXT_FILES`.
 
 ## Tools
 
 | Tool | Description |
 |------|-------------|
-| `memory_write` | Write to MEMORY.md (`long_term`) or today's daily log (`daily`). Supports `append` and `overwrite` modes. |
-| `memory_read` | Read any memory file or list daily logs. |
+| `memory_write` | Write to `long_term` (MEMORY.md), `daily` (today's log), or `note` (notes/filename). Supports `append` and `overwrite` modes. |
+| `memory_read` | Read MEMORY.md (`long_term`), SCRATCHPAD.md (`scratchpad`), daily logs (`daily`), notes (`note`), any root file (`file`), or list everything (`list`). |
+| `memory_search` | Search across all files — filenames and content. Case-insensitive keyword search across root, notes/, and daily/. |
 | `scratchpad` | Manage a checklist: `add`, `done`, `undo`, `clear_done`, `list`. |
 
 ## Context Injection
 
-MEMORY.md, SCRATCHPAD.md (open items only), and the last two days of daily logs are automatically injected into the system prompt before every agent turn.
+The following are automatically injected into the system prompt before every agent turn:
+
+- Files listed in `PI_CONTEXT_FILES` (e.g. `SOUL.md,AGENTS.md,HEARTBEAT.md`)
+- `MEMORY.md`
+- `SCRATCHPAD.md` (open items only)
+- Today's and yesterday's daily logs
+
+Files in `notes/` and older daily logs are **not** injected — they're accessible on-demand via `memory_search` and `memory_read`.
+
+## Configuration
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `PI_MEMORY_DIR` | `~/.pi/agent/memory/` | Root directory for all memory files |
+| `PI_DAILY_DIR` | `$PI_MEMORY_DIR/daily/` | Directory for daily logs |
+| `PI_CONTEXT_FILES` | *(empty)* | Comma-separated list of extra files to inject into context (e.g. `SOUL.md,AGENTS.md,HEARTBEAT.md`) |
+| `PI_AUTOCOMMIT` | `false` | When `1` or `true`, auto-commit to git after every write |
 
 ## Dashboard Widget
 
