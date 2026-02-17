@@ -63,6 +63,10 @@ An auto-generated "Last 24h" summary is shown on session start and switch:
 - Rebuilt every 15 minutes in the background
 - Also shows open scratchpad items
 
+## Related
+
+- **[pi-reflect](https://github.com/skyfallsin/pi-reflect)** — Self-improving reflection engine for pi. Analyzes recent conversations and iterates on memory, behavioral rules, and identity files. Pairs naturally with pi-mem.
+
 ## Installation
 
 ```bash
