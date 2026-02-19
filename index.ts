@@ -24,8 +24,8 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
-import { Markdown } from "@mariozechner/pi-tui";
+import { getMarkdownTheme, keyHint } from "@mariozechner/pi-coding-agent";
+import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { StringEnum, completeSimple, getModel } from "@mariozechner/pi-ai";
 import * as fs from "node:fs";
@@ -240,32 +240,77 @@ export default function (pi: ExtensionAPI) {
 		const summary = await getOrRebuildSummary();
 		const scratchContent = readFileSafe(config.scratchpadFile);
 
-		const sections: string[] = [];
-
-		if (summary) {
-			sections.push(summary);
-		}
-
+		// Parse scratchpad items
+		const openItems: string[] = [];
 		if (scratchContent?.trim()) {
-			const items = scratchContent
-				.trim()
-				.split("\n")
-				.filter((l: string) => l.match(/^- \[ \]/))
-				.filter((l: string) => !l.match(/^<!--.*-->$/))
-				.map((l: string) => l.replace(/^- /, ""));
-			if (items.length > 0) {
-				sections.push(`## Scratchpad\n\n${items.join("\n")}`);
+			const lines = scratchContent.trim().split("\n");
+			for (const l of lines) {
+				if (l.match(/^- \[ \]/) && !l.match(/^<!--.*-->$/)) {
+					openItems.push(l.replace(/^- /, ""));
+				}
 			}
 		}
 
-		if (sections.length === 0) return;
+		if (!summary && openItems.length === 0) return;
 
-		const md = sections.join("\n\n---\n\n");
-
-		ctx.ui.setWidget("memory-dashboard", (_tui: any, _theme: any) => {
+		ctx.ui.setWidget("memory-dashboard", (_tui: any, theme: any) => {
 			const mdTheme = getMarkdownTheme();
-			const markdown = new Markdown(md, 1, 0, mdTheme);
-			return markdown;
+			const container = new Container();
+			let cachedWidth: number | undefined;
+			let cachedLines: string[] | undefined;
+			let lastExpanded: boolean | undefined;
+
+			const origRender = container.render.bind(container);
+			container.render = (width: number) => {
+				const expanded = ctx.ui.getToolsExpanded();
+
+				if (cachedLines && cachedWidth === width && lastExpanded === expanded) {
+					return cachedLines;
+				}
+
+				container.clear();
+
+				if (expanded) {
+					if (summary) {
+						container.addChild(new Markdown(summary, 1, 0, mdTheme));
+					}
+					if (openItems.length > 0) {
+						if (summary) container.addChild(new Spacer(1));
+						const scratchMd = `## Scratchpad\n\n${openItems.join("\n")}`;
+						container.addChild(new Markdown(scratchMd, 1, 0, mdTheme));
+					}
+				} else {
+					const parts: string[] = [];
+					if (summary) {
+						const costMatch = summary.match(/\$[\d.]+/);
+						const cost = costMatch ? costMatch[0] : "";
+						const sessMatch = summary.match(/(\d+) sessions/);
+						const sessions = sessMatch ? sessMatch[1] : "0";
+						parts.push(`Last 24h: ${cost}, ${sessions} log entries`);
+					}
+					if (openItems.length > 0) {
+						parts.push(`${openItems.length} scratchpad item${openItems.length > 1 ? "s" : ""}`);
+					}
+					const hint = keyHint("expandTools", "to expand");
+					const line = theme.fg("muted", parts.join(", ")) + " " + theme.fg("dim", `(${hint})`);
+					container.addChild(new Text(line, 1, 0));
+				}
+
+				cachedLines = origRender(width);
+				cachedWidth = width;
+				lastExpanded = expanded;
+				return cachedLines;
+			};
+
+			const origInvalidate = container.invalidate.bind(container);
+			container.invalidate = () => {
+				cachedWidth = undefined;
+				cachedLines = undefined;
+				lastExpanded = undefined;
+				origInvalidate();
+			};
+
+			return container;
 		});
 	}
 
