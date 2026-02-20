@@ -1,6 +1,5 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import * as path from "node:path";
 import { buildConfig } from "../lib.ts";
 
 describe("buildConfig", () => {
@@ -11,6 +10,7 @@ describe("buildConfig", () => {
 		assert.strictEqual(config.scratchpadFile, "/home/testuser/.pi/agent/memory/SCRATCHPAD.md");
 		assert.strictEqual(config.dailyDir, "/home/testuser/.pi/agent/memory/daily");
 		assert.strictEqual(config.notesDir, "/home/testuser/.pi/agent/memory/notes");
+		assert.strictEqual(config.sessionDir, "/home/testuser/.pi/agent/sessions");
 		assert.deepStrictEqual(config.contextFiles, []);
 		assert.strictEqual(config.autocommit, false);
 	});
@@ -27,6 +27,13 @@ describe("buildConfig", () => {
 		const config = buildConfig({ HOME: "/home/x", PI_DAILY_DIR: "/other/daily" });
 		assert.strictEqual(config.dailyDir, "/other/daily");
 		assert.strictEqual(config.memoryDir, "/home/x/.pi/agent/memory");
+		assert.strictEqual(config.sessionDir, "/home/x/.pi/agent/sessions");
+	});
+
+	it("respects PI_CODING_AGENT_DIR for memory and sessions defaults", () => {
+		const config = buildConfig({ HOME: "/home/x", PI_CODING_AGENT_DIR: "/xdg/pi" });
+		assert.strictEqual(config.memoryDir, "/xdg/pi/memory");
+		assert.strictEqual(config.sessionDir, "/xdg/pi/sessions");
 	});
 
 	it("parses PI_CONTEXT_FILES as comma-separated list", () => {
@@ -67,5 +74,6 @@ describe("buildConfig", () => {
 	it("falls back to ~ when HOME is undefined", () => {
 		const config = buildConfig({});
 		assert.strictEqual(config.memoryDir, "~/.pi/agent/memory");
+		assert.strictEqual(config.sessionDir, "~/.pi/agent/sessions");
 	});
 });

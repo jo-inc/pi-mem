@@ -16,12 +16,14 @@ export interface MemoryConfig {
 	scratchpadFile: string;
 	dailyDir: string;
 	notesDir: string;
+	sessionDir: string;
 	contextFiles: string[];
 	autocommit: boolean;
 }
 
 export function buildConfig(env: Record<string, string | undefined> = process.env): MemoryConfig {
-	const memoryDir = env.PI_MEMORY_DIR ?? path.join(env.HOME ?? "~", ".pi", "agent", "memory");
+	const agentDir = env.PI_CODING_AGENT_DIR ?? path.join(env.HOME ?? "~", ".pi", "agent");
+	const memoryDir = env.PI_MEMORY_DIR ?? path.join(agentDir, "memory");
 	const dailyDir = env.PI_DAILY_DIR ?? path.join(memoryDir, "daily");
 	const contextFiles = (env.PI_CONTEXT_FILES ?? "")
 		.split(",")
@@ -35,6 +37,7 @@ export function buildConfig(env: Record<string, string | undefined> = process.en
 		scratchpadFile: path.join(memoryDir, "SCRATCHPAD.md"),
 		dailyDir,
 		notesDir: path.join(memoryDir, "notes"),
+		sessionDir: path.join(agentDir, "sessions"),
 		contextFiles,
 		autocommit,
 	};
