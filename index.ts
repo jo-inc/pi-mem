@@ -355,6 +355,12 @@ export default function (pi: ExtensionAPI) {
 			"- Things to fix later or keep in mind \u2192 scratchpad tool",
 			'- If someone says "remember this," write it immediately.',
 			"",
+			"### Daily Log Rule",
+			"After meaningful interactions, call memory_write(target='daily') with a brief 1-2 sentence summary.",
+			"**Log when:** task completed, decision made, bug fixed, new info discovered, config changed.",
+			"**Skip when:** greetings, goodbyes, chitchat, simple acks, trivial factual questions.",
+			"Log the outcome, not the question (e.g. \"Debugged import error \u2014 missing __init__.py\" not \"User asked about imports\").",
+			"",
 			memoryContext,
 		].join("\n");
 
