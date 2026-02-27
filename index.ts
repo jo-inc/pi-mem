@@ -441,32 +441,25 @@ export default function (pi: ExtensionAPI) {
 				const filePath = dailyPath(config.dailyDir, todayStr());
 				const existing = readFileSafe(filePath) ?? "";
 
-				const existingSnippet = existing.trim()
-					? `\n\nExisting daily log content:\n${existing.trim()}`
-					: "\n\nDaily log was empty.";
-
 				const separator = existing.trim() ? "\n\n" : "";
 				const stamped = `<!-- ${ts} [${sid}] -->\n${content}`;
 				fs.writeFileSync(filePath, existing + separator + stamped, "utf-8");
 				gitCommit(`daily: ${todayStr()}`);
 				return {
-					content: [{ type: "text", text: `Appended to daily log: ${filePath}${existingSnippet}` }],
+					content: [{ type: "text", text: `Appended to daily/${todayStr()}.md` }],
 					details: { path: filePath, target, mode: "append", sessionId: sid, timestamp: ts },
 				};
 			}
 
 			// long_term
 			const existing = readFileSafe(config.memoryFile) ?? "";
-			const existingSnippet = existing.trim()
-				? `\n\nExisting MEMORY.md content:\n${existing.trim()}`
-				: "\n\nMEMORY.md was empty.";
 
 			if (mode === "overwrite") {
 				const stamped = `<!-- last updated: ${ts} [${sid}] -->\n${content}`;
 				fs.writeFileSync(config.memoryFile, stamped, "utf-8");
 				gitCommit("memory: overwrite");
 				return {
-					content: [{ type: "text", text: `Overwrote MEMORY.md${existingSnippet}` }],
+					content: [{ type: "text", text: `Overwrote MEMORY.md` }],
 					details: { path: config.memoryFile, target, mode: "overwrite", sessionId: sid, timestamp: ts },
 				};
 			}
@@ -476,7 +469,7 @@ export default function (pi: ExtensionAPI) {
 			fs.writeFileSync(config.memoryFile, existing + separator + stamped, "utf-8");
 			gitCommit("memory: append");
 			return {
-				content: [{ type: "text", text: `Appended to MEMORY.md${existingSnippet}` }],
+				content: [{ type: "text", text: `Appended to MEMORY.md` }],
 				details: { path: config.memoryFile, target, mode: "append", sessionId: sid, timestamp: ts },
 			};
 		},
