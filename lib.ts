@@ -140,14 +140,6 @@ export function buildMemoryContext(config: MemoryConfig): string {
 		sections.push(`## MEMORY.md (long-term)\n\n${longTerm.trim()}`);
 	}
 
-	const scratchpad = readFileSafe(config.scratchpadFile);
-	if (scratchpad?.trim()) {
-		const openItems = parseScratchpad(scratchpad).filter((i) => !i.done);
-		if (openItems.length > 0) {
-			sections.push(`## SCRATCHPAD.md (working context)\n\n${serializeScratchpad(openItems)}`);
-		}
-	}
-
 	const today = todayStr();
 	const yesterday = yesterdayStr();
 

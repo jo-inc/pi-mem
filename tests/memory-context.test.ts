@@ -25,30 +25,13 @@ describe("buildMemoryContext", () => {
 		assert.ok(result.includes("Important fact"));
 	});
 
-	it("includes open scratchpad items only", () => {
+	it("does not include scratchpad in context (available via tool only)", () => {
 		const config = makeConfig(tmpDir);
 		ensureDirs(config);
 		fs.writeFileSync(config.scratchpadFile, "# Scratchpad\n\n- [ ] Open task\n- [x] Done task\n", "utf-8");
 		const result = buildMemoryContext(config);
-		assert.ok(result.includes("## SCRATCHPAD.md (working context)"));
-		assert.ok(result.includes("Open task"));
-		assert.ok(!result.includes("Done task"));
-	});
-
-	it("skips scratchpad section when all items are done", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		fs.writeFileSync(config.scratchpadFile, "# Scratchpad\n\n- [x] Done\n", "utf-8");
-		const result = buildMemoryContext(config);
 		assert.ok(!result.includes("SCRATCHPAD"));
-	});
-
-	it("skips scratchpad section when file is empty", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		fs.writeFileSync(config.scratchpadFile, "", "utf-8");
-		const result = buildMemoryContext(config);
-		assert.ok(!result.includes("SCRATCHPAD"));
+		assert.ok(!result.includes("Open task"));
 	});
 
 	it("includes today's daily log", () => {
@@ -107,31 +90,29 @@ describe("buildMemoryContext", () => {
 		const config = makeConfig(tmpDir);
 		ensureDirs(config);
 		fs.writeFileSync(config.memoryFile, "Memory content", "utf-8");
-		fs.writeFileSync(config.scratchpadFile, "# Scratchpad\n\n- [ ] Task\n", "utf-8");
+		writeFile(`${config.dailyDir}/${todayStr()}.md`, "Today content");
 		const result = buildMemoryContext(config);
 		assert.ok(result.includes("---"));
 	});
 
-	it("assembles sections in correct order: context files, memory, scratchpad, today, yesterday", () => {
+	it("assembles sections in correct order: context files, memory, today, yesterday", () => {
 		const config = makeConfig(tmpDir, { contextFiles: ["SOUL.md"] });
 		ensureDirs(config);
 		writeFile(`${config.memoryDir}/SOUL.md`, "Soul content");
 		fs.writeFileSync(config.memoryFile, "Memory content", "utf-8");
-		fs.writeFileSync(config.scratchpadFile, "# Scratchpad\n\n- [ ] Task\n", "utf-8");
 		writeFile(`${config.dailyDir}/${todayStr()}.md`, "Today content");
 		writeFile(`${config.dailyDir}/${yesterdayStr()}.md`, "Yesterday content");
 
 		const result = buildMemoryContext(config);
 		const soulIdx = result.indexOf("## SOUL.md");
 		const memIdx = result.indexOf("## MEMORY.md");
-		const spIdx = result.indexOf("## SCRATCHPAD.md");
 		const todayIdx = result.indexOf("(today)");
 		const yesterdayIdx = result.indexOf("(yesterday)");
 
 		assert.ok(soulIdx < memIdx, "SOUL.md should come before MEMORY.md");
-		assert.ok(memIdx < spIdx, "MEMORY.md should come before SCRATCHPAD.md");
-		assert.ok(spIdx < todayIdx, "SCRATCHPAD should come before today");
+		assert.ok(memIdx < todayIdx, "MEMORY.md should come before today");
 		assert.ok(todayIdx < yesterdayIdx, "today should come before yesterday");
+		assert.ok(!result.includes("SCRATCHPAD"), "scratchpad should not be in context");
 	});
 
 	it("includes multiple context files in order", () => {

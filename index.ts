@@ -353,6 +353,7 @@ export default function (pi: ExtensionAPI) {
 			"- Decisions, preferences, and durable facts \u2192 MEMORY.md",
 			"- Day-to-day notes and running context \u2192 daily/<YYYY-MM-DD>.md",
 			"- Things to fix later or keep in mind \u2192 scratchpad tool",
+			"- Scratchpad is NOT auto-loaded. Use memory_read(target='scratchpad') to fetch it when needed.",
 			'- If someone says "remember this," write it immediately.',
 			"",
 			"### Daily Log Rule",
