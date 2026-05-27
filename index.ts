@@ -369,7 +369,20 @@ export default function (pi: ExtensionAPI) {
 			memoryContext,
 		].join("\n");
 
-		const messages = [...event.messages, { role: "system", content: memoryInstructions }];
+		// pi-coding-agent's convertToLlm() recognises only user / assistant /
+		// toolResult / custom / bashExecution / branchSummary / compactionSummary
+		// roles — a `role: "system"` message is silently dropped before the
+		// LLM ever sees it. Inject the memory block as a `user` message so it
+		// reaches the model. Wrap it in a clear marker so the agent doesn't
+		// confuse it with an actual user turn.
+		const messages = [
+			...event.messages,
+			{
+				role: "user" as const,
+				content: `<pi-mem-injected>\n${memoryInstructions}\n</pi-mem-injected>`,
+				timestamp: Date.now(),
+			},
+		];
 		return { messages };
 	});
 
