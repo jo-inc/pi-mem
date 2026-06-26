@@ -23,11 +23,16 @@
  *   - Shown on session_start and session_switch (so /new gets it too)
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { getMarkdownTheme, keyHint } from "@mariozechner/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
-import { StringEnum, completeSimple, getModel } from "@mariozechner/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, keyHint } from "@earendil-works/pi-coding-agent";
+import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+// pi-ai re-exports `Type` from its bundled typebox, so importing both `Type`
+// and `StringEnum` from here guarantees a single typebox instance (symbol-based
+// schema validation breaks if Type and StringEnum come from different copies).
+import { StringEnum, Type } from "@earendil-works/pi-ai";
+// pi-ai 0.80 moved the one-shot `completeSimple()` helper to the /compat
+// entrypoint; the package root now only exports the factory-based API.
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -122,8 +127,8 @@ async function summarizeWithLLM(sessions: SessionInfo[], childCountMap: Map<stri
 	if (!modelRegistryRef) return "";
 
 	const candidates = [
-		getModel("openai", "gpt-4.1-mini"),
-		getModel("openai", "gpt-4o-mini"),
+		modelRegistryRef.find("openai", "gpt-4.1-mini"),
+		modelRegistryRef.find("openai", "gpt-4o-mini"),
 		modelRegistryRef.find("jo-proxy", "jo-gpt-4.1-mini"),
 	];
 

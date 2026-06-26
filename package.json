@@ -1,6 +1,6 @@
 {
-  "name": "@askjo/pi-mem",
-  "version": "1.0.1",
+  "name": "@haha1903/pi-mem",
+  "version": "1.0.2",
   "description": "Pi coding agent extension for plain-Markdown memory system — long-term memory, daily logs, and scratchpad checklist",
   "main": "index.ts",
   "type": "module",
@@ -37,10 +37,9 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-tui": "*",
-    "@sinclair/typebox": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
     "tsx": "^4.19.0",
