@@ -56,6 +56,7 @@ export function resolveHomeDir(
 	env: Record<string, string | undefined> = process.env,
 	fallback = os.homedir(),
 ): string {
+	fallback ??= os.homedir();
 	return env.HOME
 		?? env.USERPROFILE
 		?? (env.HOMEDRIVE && env.HOMEPATH ? `${env.HOMEDRIVE}${env.HOMEPATH}` : undefined)
@@ -66,6 +67,7 @@ export function resolveAgentDir(
 	env: Record<string, string | undefined> = process.env,
 	fallbackHome = os.homedir(),
 ): string {
+	fallbackHome ??= os.homedir();
 	return env.PI_CODING_AGENT_DIR ?? path.join(resolveHomeDir(env, fallbackHome), ".pi", "agent");
 }
 
@@ -73,6 +75,7 @@ export function resolveSessionsDir(
 	env: Record<string, string | undefined> = process.env,
 	fallbackHome = os.homedir(),
 ): string {
+	fallbackHome ??= os.homedir();
 	return path.join(resolveAgentDir(env, fallbackHome), "sessions");
 }
 
@@ -169,9 +172,24 @@ export function dailyPath(dailyDir: string, date: string): string {
 
 /** Validate and normalize a relative file path within the memory directory. Returns null if path escapes memoryDir. */
 export function safeResolvePath(memoryDir: string, filename: string): { resolved: string; normalized: string } | null {
-	const normalized = path.normalize(filename).replace(/^\/+/, "");
-	if (normalized.startsWith("..") || path.isAbsolute(filename)) return null;
-	return { resolved: path.join(memoryDir, normalized), normalized };
+	memoryDir = path.normalize(memoryDir);
+	filename = path.normalize(filename);
+
+	// Block absolute paths
+	if (/^(\\|\/)/.test(filename) || (os.platform() === 'win32' && /^\w:(\/|\\)/.test(filename))) return null;
+	
+	// Join and resolve memoryDir and filename to get the full path to the file.
+	const resolved = path.join(memoryDir, filename);
+
+
+	// Block directory traversal: Return null when joining the normalized memoryDir and filename produces a path that
+	// does not start with memoryDir.
+	if (!resolved.startsWith(memoryDir)) return null;
+
+	// Remove memoryDir from the resolved path and return it as normalized. Trim any leading slashes.
+	const normalized = resolved.replace(memoryDir, '').replace(/^(\\|\/)/, '');
+
+	return { resolved, normalized };
 }
 
 export interface IndexEntry {
@@ -263,13 +281,13 @@ export function resolveIndexedFile(config: MemoryConfig, directory: string, quer
 	const indexContent = readFileSafe(indexPath);
 	if (!indexContent) {
 		const alternatives = listSiblingIndexedDirectories(config, directory);
-		const suffix = alternatives.length > 0 ? ` Indexed directories nearby: ${alternatives.map(d => `${d}/`).join(", ")}` : "";
+		const suffix = alternatives.length > 0 ? ` Indexed directories nearby: ${alternatives.map(d => `${d}${path.sep}`).join(", ")}` : "";
 		return { text: `No INDEX.md for ${directory}.${suffix}`, details: { directory, found: false, reason: "missing_index" } };
 	}
 
 	const entries = parseIndexFile(directory, indexContent);
 	if (entries.length === 0) {
-		return { text: `No indexed entries found in ${directory}/INDEX.md.`, details: { directory, found: false, reason: "empty_index" } };
+		return { text: `No indexed entries found in ${directory}${path.sep}INDEX.md.`, details: { directory, found: false, reason: "empty_index" } };
 	}
 
 	const scored = entries
@@ -279,7 +297,7 @@ export function resolveIndexedFile(config: MemoryConfig, directory: string, quer
 
 	if (scored.length === 0) {
 		return {
-			text: formatIndexCandidates(directory, entries, `No indexed entry matched "${query}" in ${directory}/INDEX.md. Candidates:`),
+			text: formatIndexCandidates(directory, entries, `No indexed entry matched "${query}" in ${directory}${path.sep}INDEX.md. Candidates:`),
 			details: { directory, query, found: false, reason: "no_match", candidates: entries.map(e => e.filename) },
 		};
 	}
@@ -300,11 +318,11 @@ export function resolveIndexedFile(config: MemoryConfig, directory: string, quer
 	const content = readFileSafe(filePath);
 	if (!content) {
 		return {
-			text: `INDEX.md points to missing file: ${directory}/${match.filename}`,
+			text: `INDEX.md points to missing file: ${directory}${path.sep}${match.filename}`,
 			details: { directory, query, found: false, reason: "missing_resolved_file", filename: match.filename, path: filePath },
 		};
 	}
-	return { text: content, details: { path: filePath, filename: `${directory}/${match.filename}`, resolvedFrom: query, title: match.title } };
+	return { text: content, details: { path: filePath, filename: path.join(directory, match.filename), resolvedFrom: query, title: match.title } };
 }
 
 export function readMemoryFile(config: MemoryConfig, filename: string): MemoryReadResult {

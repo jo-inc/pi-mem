@@ -75,7 +75,7 @@ describe("safeResolvePath", () => {
 	it("allows subdirectory paths", () => {
 		const result = safeResolvePath("/mem", "catchup/2026-04-26/file.md");
 		assert.ok(result);
-		assert.strictEqual(result.normalized, "catchup/2026-04-26/file.md");
+		assert.strictEqual(result.normalized, path.normalize("catchup/2026-04-26/file.md"));
 		assert.strictEqual(result.resolved, path.join("/mem", "catchup/2026-04-26/file.md"));
 	});
 
@@ -93,11 +93,18 @@ describe("safeResolvePath", () => {
 
 	it("blocks absolute paths", () => {
 		assert.strictEqual(safeResolvePath("/mem", "/etc/passwd"), null);
+		assert.strictEqual(safeResolvePath("/mem", "\\etc\\passwd"), null);
+	});
+
+	it("blocks absolute win32 paths", () => {
+		assert.strictEqual(safeResolvePath("/mem", "C:\\etc\\passwd"), null);
+		assert.strictEqual(safeResolvePath("C:\\mem", "C:/etc/passwd"), null);
+		assert.strictEqual(safeResolvePath("C:/mem", "Z:/etc/passwd"), null);
 	});
 
 	it("allows paths that resolve within memoryDir after normalization", () => {
 		const result = safeResolvePath("/mem", "catchup/2026/../2026/file.md");
 		assert.ok(result);
-		assert.strictEqual(result.normalized, "catchup/2026/file.md");
+		assert.strictEqual(result.normalized, path.normalize("catchup/2026/file.md"));
 	});
 });

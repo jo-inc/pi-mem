@@ -1,6 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { todayStr, yesterdayStr, nowTimestamp, shortSessionId, dailyPath } from "../lib.ts";
+import {
+	todayStr,
+	yesterdayStr,
+	nowTimestamp,
+	shortSessionId,
+	dailyPath,
+} from "../lib.ts";
+import path from "node:path";
 
 describe("todayStr", () => {
 	it("returns YYYY-MM-DD format", () => {
@@ -59,7 +66,10 @@ describe("shortSessionId", () => {
 	});
 
 	it("handles UUID-style IDs", () => {
-		assert.strictEqual(shortSessionId("550e8400-e29b-41d4-a716-446655440000"), "550e8400");
+		assert.strictEqual(
+			shortSessionId("550e8400-e29b-41d4-a716-446655440000"),
+			"550e8400",
+		);
 	});
 
 	it("handles short input gracefully", () => {
@@ -73,12 +83,12 @@ describe("shortSessionId", () => {
 
 describe("dailyPath", () => {
 	it("builds correct path for a date", () => {
-		const result = dailyPath("/mem/daily", "2026-02-18");
-		assert.strictEqual(result, "/mem/daily/2026-02-18.md");
+		const result = dailyPath(path.normalize("/mem/daily"), "2026-02-18");
+		assert.strictEqual(result, path.normalize("/mem/daily/2026-02-18.md"));
 	});
 
 	it("handles trailing slash in dir", () => {
-		const result = dailyPath("/mem/daily/", "2026-01-01");
+		const result = dailyPath(path.normalize("/mem/daily"), "2026-01-01");
 		assert.ok(result.endsWith("2026-01-01.md"));
 	});
 });

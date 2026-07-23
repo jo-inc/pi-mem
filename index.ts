@@ -29,6 +29,7 @@ import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { StringEnum, completeSimple, getModel } from "@mariozechner/pi-ai";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 
