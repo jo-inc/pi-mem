@@ -15,7 +15,8 @@
  *   scratchpad    — add/check/uncheck/clear items on the scratchpad checklist
  *
  * Context injection:
- *   - MEMORY.md + SCRATCHPAD.md + today's + yesterday's daily logs injected into every turn
+ *   - A small bootstrap message is injected by default
+ *   - Full memory-file injection is available as an explicit compatibility mode
  *
  * Dashboard widget:
  *   - Auto-generated "Last 24h" summary from session metadata (titles, timestamps, costs)
@@ -346,27 +347,22 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// Inject memory as a trailing user message, leaving the stable system prompt
-	// untouched for prompt caching. Pi 0.81 drops unsupported system-role entries.
+	// untouched for prompt caching. The default bootstrap mode keeps file bodies
+	// on disk and makes them available through the memory tools on demand.
 	pi.on("context", async (event) => {
-		const memoryContext = buildMemoryContext(config);
+		if (config.contextMode === "off") return;
 
-		const memoryInstructions = [
-			"## Memory",
-			"The following memory files have been loaded. Use the memory_write tool to persist important information.",
-			"- Decisions, preferences, and durable facts \u2192 MEMORY.md",
-			"- Day-to-day notes and running context \u2192 daily/<YYYY-MM-DD>.md",
-			"- Things to fix later or keep in mind \u2192 scratchpad tool",
-			"- Scratchpad is NOT auto-loaded. Use memory_read(target='scratchpad') to fetch it when needed.",
-			'- If someone says "remember this," write it immediately.',
-			"",
-			"### Daily Log Rule",
-			"After meaningful interactions, call memory_write(target='daily') with a brief 1-2 sentence summary.",
-			"**Log when:** task completed, decision made, bug fixed, new info discovered, config changed.",
-			"**Skip when:** greetings, goodbyes, chitchat, simple acks, trivial factual questions.",
-			"Log the outcome, not the question (e.g. \"Debugged import error \u2014 missing __init__.py\" not \"User asked about imports\").",
-			"",
-			memoryContext,
-		].join("\n");
+		const memoryInstructions = config.contextMode === "full"
+			? [
+				"Memory files are loaded below. Persist durable facts with memory_write.",
+				'If the user says "remember this," write it immediately.',
+				"",
+				buildMemoryContext(config),
+			].join("\n")
+			: [
+				"Memory is available on demand through memory_search and memory_read; file bodies are not loaded.",
+				"Use memory_write for explicit remember requests and durable preferences or decisions.",
+			].join("\n");
 
 		return {
 			messages: [
@@ -381,11 +377,9 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_before_compact", async (_event, ctx) => {
-		const memoryContext = buildMemoryContext(config);
-		const hasMemory = memoryContext.length > 0;
-
+		const hasMemory = Boolean(readFileSafe(config.memoryFile)?.trim());
 		if (hasMemory) {
-			ctx.ui.notify("Memory files available \u2014 consider persisting important context before compaction", "info");
+			ctx.ui.notify("Memory files available — consider persisting important context before compaction", "info");
 		}
 	});
 

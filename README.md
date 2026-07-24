@@ -26,7 +26,7 @@ Memory files live under `~/.pi/agent/memory/` (override with `PI_MEMORY_DIR`):
 |------|---------|
 | `MEMORY.md` | Curated long-term memory (decisions, preferences, durable facts) |
 | `SCRATCHPAD.md` | Checklist of things to keep in mind / fix later |
-| `daily/YYYY-MM-DD.md` | Daily append-only log (today + yesterday loaded at session start) |
+| `daily/YYYY-MM-DD.md` | Daily append-only log, available on demand |
 | `notes/*.md` | LLM-created files (lessons, self-review, reference material, etc.) |
 
 Identity and behavioral files (e.g. `SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`) can also live in the memory directory and be injected into context via `PI_CONTEXT_FILES`.
@@ -42,14 +42,15 @@ Identity and behavioral files (e.g. `SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`) can 
 
 ## Context Injection
 
-The following are automatically injected into the system prompt before every agent turn:
+The default `bootstrap` mode injects only a short reminder that memory is available through `memory_search`, `memory_read`, and `memory_write`. Memory file bodies remain on disk and are loaded only when requested.
 
-- Files listed in `PI_CONTEXT_FILES` (e.g. `SOUL.md,AGENTS.md,HEARTBEAT.md`)
-- `MEMORY.md`
-- `SCRATCHPAD.md` (open items only)
-- Today's and yesterday's daily logs
+Compatibility modes:
 
-Files in `notes/` and older daily logs are **not** injected — they're accessible on-demand via `memory_search` and `memory_read`.
+- `bootstrap` — short tool reminder only; the default
+- `full` — inject context files, `MEMORY.md`, today's and yesterday's logs, and catchup indexes
+- `off` — inject nothing
+
+`SCRATCHPAD.md`, files in `notes/`, and older daily logs are always available on demand through the memory tools.
 
 ## Configuration
 
@@ -63,6 +64,7 @@ Place a `.pi-mem.json` in your memory directory (default `~/.pi/agent/memory/.pi
 {
   "searchDirs": ["catchup", "projects"],
   "contextFiles": ["SOUL.md", "AGENTS.md"],
+  "contextMode": "bootstrap",
   "autocommit": true
 }
 ```
@@ -75,9 +77,10 @@ Environment variables override `.pi-mem.json` values when set.
 |---------|---------|-------------|
 | `PI_MEMORY_DIR` | `~/.pi/agent/memory/` | Root directory for all memory files |
 | `PI_DAILY_DIR` | `$PI_MEMORY_DIR/daily/` | Directory for daily logs |
-| `PI_CONTEXT_FILES` | *(empty)* | Comma-separated list of extra files to inject into context (e.g. `SOUL.md,AGENTS.md,HEARTBEAT.md`) |
+| `PI_CONTEXT_FILES` | *(empty)* | Comma-separated extra files used by `full` context mode |
 | `PI_SEARCH_DIRS` | *(empty)* | Comma-separated list of subdirectories (relative to `PI_MEMORY_DIR`) to include in `memory_search`. Searched recursively one level deep. (e.g. `catchup,projects`) |
 | `PI_AUTOCOMMIT` | `false` | When `1` or `true`, auto-commit to git after every write |
+| `PI_MEMORY_CONTEXT_MODE` | `bootstrap` | Context mode: `bootstrap`, `full`, or `off` |
 | `PI_TIMEZONE` | `TZ`, then `UTC` | IANA timezone used for daily log filenames and today/yesterday context windows. Invalid values fall back to `UTC`. |
 
 ## Dashboard Widget

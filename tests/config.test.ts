@@ -15,6 +15,7 @@ describe("buildConfig", () => {
 		assert.deepStrictEqual(config.contextFiles, []);
 		assert.strictEqual(config.autocommit, false);
 		assert.strictEqual(config.timezone, "UTC");
+		assert.strictEqual(config.contextMode, "bootstrap");
 	});
 
 	it("respects PI_MEMORY_DIR override", () => {
@@ -29,6 +30,15 @@ describe("buildConfig", () => {
 		const config = buildConfig({ HOME: "/home/x", PI_DAILY_DIR: "/other/daily" });
 		assert.strictEqual(config.dailyDir, "/other/daily");
 		assert.strictEqual(config.memoryDir, "/home/x/.pi/agent/memory");
+	});
+
+	it("supports full and off context modes", () => {
+		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_MEMORY_CONTEXT_MODE: "full" }).contextMode, "full");
+		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_MEMORY_CONTEXT_MODE: "off" }).contextMode, "off");
+	});
+
+	it("falls back to bootstrap for an invalid context mode", () => {
+		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_MEMORY_CONTEXT_MODE: "invalid" }).contextMode, "bootstrap");
 	});
 
 	it("parses PI_CONTEXT_FILES as comma-separated list", () => {
@@ -102,11 +112,13 @@ describe("buildConfig", () => {
 			searchDirs: ["catchup", "projects"],
 			contextFiles: ["SOUL.md"],
 			autocommit: true,
+			contextMode: "full",
 		}));
 		const config = buildConfig({ HOME: "/home/x", PI_MEMORY_DIR: memDir });
 		assert.deepStrictEqual(config.searchDirs, ["catchup", "projects"]);
 		assert.deepStrictEqual(config.contextFiles, ["SOUL.md"]);
 		assert.strictEqual(config.autocommit, true);
+		assert.strictEqual(config.contextMode, "full");
 		cleanup(memDir);
 	});
 

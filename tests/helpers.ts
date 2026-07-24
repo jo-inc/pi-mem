@@ -23,6 +23,7 @@ export function makeConfig(baseDir: string, overrides: Partial<MemoryConfig> = {
 		searchDirs: [],
 		autocommit: false,
 		timezone: "UTC",
+		contextMode: "bootstrap",
 		...overrides,
 	};
 }
