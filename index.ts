@@ -317,9 +317,11 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", (_event, ctx) => {
 		modelRegistryRef = ctx.modelRegistry;
-		await showDashboard(ctx);
+		// Dashboard summaries can scan sessions and call the LLM. Do not make a
+		// new Pi session wait for that optional UI work.
+		void showDashboard(ctx).catch(() => {});
 
 		if (!rebuildTimer) {
 			rebuildTimer = setInterval(async () => {
