@@ -704,20 +704,20 @@ export default function (pi: ExtensionAPI) {
 			"Returns matching files and lines with paths.",
 		].join("\n"),
 		parameters: Type.Object({
-			query: Type.String({ description: "Search query (case-insensitive substring match)" }),
+			query: Type.String({ description: "Keywords to search for. Split into words, each matched case-insensitively and independently; results ranked by how many words match. Natural-language queries work." }),
 			max_results: Type.Optional(
-				Type.Number({ description: "Maximum results to return (default: 20)", default: 20 }),
+				Type.Number({ description: "Maximum results to return (default: 3)", default: 3 }),
 			),
 		}),
 		async execute(_toolCallId, params) {
 			ensureDirs(config);
 			const { query, max_results } = params;
-			const limit = max_results ?? 20;
+			const limit = max_results ?? 3;
 
 			const result = searchMemory(config, query, limit);
 
 			if (result.fileMatches.length === 0 && result.lineResults.length === 0) {
-				return { content: [{ type: "text", text: `No results for "${query}".` }], details: {} };
+				return { content: [{ type: "text", text: `No results for "${query}".` }], details: { query, totalHits: 0, fileCount: 0, shown: 0 } };
 			}
 
 			const parts: string[] = [];
@@ -728,10 +728,67 @@ export default function (pi: ExtensionAPI) {
 				parts.push(`Content matches:\n${result.lineResults.map(r => `${r.file}:${r.line}: ${r.text}`).join("\n")}`);
 			}
 
+			const fileCount = new Set(result.lineResults.map(r => r.file)).size;
 			return {
 				content: [{ type: "text", text: parts.join("\n\n") }],
-				details: { query, fileMatches: result.fileMatches.length, lineMatches: result.lineResults.length },
+				details: {
+					query,
+					fileMatches: result.fileMatches.length,
+					lineMatches: result.lineResults.length,
+					totalHits: result.lineResults.length,
+					fileCount,
+					shown: result.lineResults.length,
+				},
 			};
+		},
+
+		renderCall(args, theme) {
+			return new Text(
+				theme.fg("toolTitle", theme.bold("\u{1F50D} memory_search ")) +
+					theme.fg("accent", `\u201c${args.query}\u201d`),
+				0,
+				0,
+			);
+		},
+
+		renderResult(result, { expanded, isPartial }, theme) {
+			if (isPartial) return new Text(theme.fg("warning", "\u2026 searching memory"), 0, 0);
+
+			const d = result.details as
+				| { totalHits?: number; fileCount?: number; shown?: number }
+				| undefined;
+			const body =
+				result.content?.[0]?.type === "text" ? result.content[0].text : "";
+
+			if (!d || !d.totalHits) {
+				if (expanded) return new Text(theme.fg("dim", body), 0, 0);
+				return new Text(theme.fg("muted", "\u2205 no matches"), 0, 0);
+			}
+
+			const matches = `${d.totalHits} match${d.totalHits === 1 ? "" : "es"}`;
+			const files = `${d.fileCount} file${d.fileCount === 1 ? "" : "s"}`;
+			const summary =
+				theme.fg("success", `\u2713 ${matches}`) +
+				theme.fg("dim", ` across ${files} \u00b7 top ${d.shown}`) +
+				(expanded ? "" : theme.fg("muted", "  (ctrl+o to expand)"));
+
+			if (!expanded) return new Text(summary, 0, 0);
+
+			const lines: string[] = [summary, ""];
+			for (const raw of body.split("\n")) {
+				const bar = theme.fg("borderMuted", "\u2502 ");
+				if (/^(Files matching|Content matches)/.test(raw)) {
+					lines.push(bar + theme.fg("toolTitle", theme.bold(raw)));
+				} else {
+					const m = raw.match(/^(\S.*?:\d+:)(.*)$/);
+					if (m) {
+						lines.push(bar + theme.fg("accent", m[1]) + theme.fg("dim", m[2]));
+					} else {
+						lines.push(bar + theme.fg("dim", raw));
+					}
+				}
+			}
+			return new Text(lines.join("\n"), 0, 0);
 		},
 	});
 

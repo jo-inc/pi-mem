@@ -619,21 +619,68 @@ export interface SearchResult {
 	lineResults: { file: string; line: number; text: string }[];
 }
 
+const SEARCH_STOPWORDS = new Set([
+	"a", "an", "the", "of", "to", "for", "and", "or", "in", "on", "at", "is",
+	"are", "be", "was", "were", "with", "how", "what", "why", "when", "where",
+	"do", "does", "did", "we", "i", "you", "it", "its", "this", "that", "these",
+	"those", "as", "by", "from", "into", "about", "can", "could", "should",
+	"would", "will", "has", "have", "had", "our", "my", "your",
+]);
+
+function stemToken(tok: string): string {
+	// Fold simple plurals so "recording" ~ "recordings", "scope" ~ "scopes".
+	if (tok.length > 3 && tok.endsWith("s") && !tok.endsWith("ss")) return tok.slice(0, -1);
+	return tok;
+}
+
+function tokenizeQuery(query: string): string[] {
+	const raw = query
+		.toLowerCase()
+		.replace(/[^a-z0-9\s]+/g, " ")
+		.split(/\s+/)
+		.filter(t => t.length >= 2 && !SEARCH_STOPWORDS.has(t));
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const t of raw) {
+		const s = stemToken(t);
+		if (!seen.has(s)) { seen.add(s); out.push(s); }
+	}
+	return out;
+}
+
+/**
+ * Keyword search: the query is split into words, each matched case-insensitively
+ * and independently. Lines are ranked by how many distinct query words they
+ * contain (ties broken by file order then line number), then the top
+ * `maxResults` are returned. A one-word query behaves like a substring match.
+ */
 export function searchMemory(config: MemoryConfig, query: string, maxResults: number = 20): SearchResult {
-	const needle = query.toLowerCase();
+	const tokens = tokenizeQuery(query);
 	const fileMatches: string[] = [];
-	const lineResults: { file: string; line: number; text: string }[] = [];
+	// Collect ALL hits first (with score + a stable file order index), then rank.
+	const hits: { file: string; line: number; text: string; score: number; order: number }[] = [];
+	let fileOrder = 0;
+
+	// Fall back to the raw lowercased query if tokenization yields nothing
+	// (e.g. a query made only of stopwords or punctuation).
+	const terms = tokens.length > 0 ? tokens : [query.toLowerCase().trim()].filter(Boolean);
+	if (terms.length === 0) return { fileMatches, lineResults: [] };
 
 	function searchFile(filePath: string, displayName: string) {
-		if (displayName.toLowerCase().includes(needle) && !fileMatches.includes(displayName)) {
+		const order = fileOrder++;
+		const nameLower = displayName.toLowerCase();
+		if (terms.some(t => nameLower.includes(t)) && !fileMatches.includes(displayName)) {
 			fileMatches.push(displayName);
 		}
 		const content = readFileSafe(filePath);
 		if (!content) return;
 		const lines = content.split("\n");
-		for (let i = 0; i < lines.length && lineResults.length < maxResults; i++) {
-			if (lines[i].toLowerCase().includes(needle)) {
-				lineResults.push({ file: displayName, line: i + 1, text: lines[i].trimEnd() });
+		for (let i = 0; i < lines.length; i++) {
+			const lower = lines[i].toLowerCase();
+			let score = 0;
+			for (const t of terms) if (lower.includes(t)) score++;
+			if (score > 0) {
+				hits.push({ file: displayName, line: i + 1, text: lines[i].trimEnd(), score, order });
 			}
 		}
 	}
@@ -642,7 +689,6 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 		try {
 			const files = fs.readdirSync(dir).filter(f => f.endsWith(".md")).sort();
 			for (const f of files) {
-				if (lineResults.length >= maxResults) break;
 				searchFile(path.join(dir, f), prefix ? `${prefix}/${f}` : f);
 			}
 		} catch {}
@@ -654,25 +700,23 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 
 	// Search extra dirs configured via PI_SEARCH_DIRS
 	for (const dirName of config.searchDirs) {
-		if (lineResults.length >= maxResults) break;
 		const dirPath = path.join(config.memoryDir, dirName);
 		try {
 			const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-			// Search .md files directly in the dir
 			const mdFiles = entries.filter(e => e.isFile() && e.name.endsWith(".md"));
 			for (const f of mdFiles) {
-				if (lineResults.length >= maxResults) break;
 				searchFile(path.join(dirPath, f.name), `${dirName}/${f.name}`);
 			}
-			// Search one level of subdirectories (e.g. catchup/2026-04-20/*.md)
 			const subDirs = entries.filter(e => e.isDirectory());
 			for (const sub of subDirs) {
-				if (lineResults.length >= maxResults) break;
 				searchDir(path.join(dirPath, sub.name), `${dirName}/${sub.name}`);
 			}
 		} catch {}
 	}
 
+	// Rank: more matched keywords first, then file order, then line number.
+	hits.sort((a, b) => b.score - a.score || a.order - b.order || a.line - b.line);
+	const lineResults = hits.slice(0, maxResults).map(({ file, line, text }) => ({ file, line, text }));
 	return { fileMatches, lineResults };
 }
 
