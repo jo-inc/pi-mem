@@ -24,6 +24,7 @@ export interface MemoryConfig {
 	autocommit: boolean;
 	timezone: string;
 	contextMode: ContextMode;
+	ancestry: boolean;
 }
 
 export interface FileConfig {
@@ -32,6 +33,7 @@ export interface FileConfig {
 	searchDirs?: string[];
 	autocommit?: boolean;
 	contextMode?: ContextMode;
+	ancestry?: boolean;
 }
 
 export function loadConfigFile(memoryDir: string): FileConfig {
@@ -47,6 +49,7 @@ export function loadConfigFile(memoryDir: string): FileConfig {
 		if (parsed.contextMode === "bootstrap" || parsed.contextMode === "full" || parsed.contextMode === "off") {
 			result.contextMode = parsed.contextMode;
 		}
+		if (typeof parsed.ancestry === "boolean") result.ancestry = parsed.ancestry;
 		return result;
 	} catch {
 		return {};
@@ -95,6 +98,9 @@ export function buildConfig(env: Record<string, string | undefined> = process.en
 	const autocommit = env.PI_AUTOCOMMIT !== undefined
 		? (env.PI_AUTOCOMMIT === "1" || env.PI_AUTOCOMMIT === "true")
 		: (fileConfig.autocommit ?? false);
+	const ancestry = env.PI_ANCESTRY !== undefined
+		? (env.PI_ANCESTRY === "1" || env.PI_ANCESTRY === "true")
+		: (fileConfig.ancestry ?? false);
 	const timezone = normalizeTimeZone(env.PI_TIMEZONE ?? env.TZ ?? "UTC");
 	const requestedContextMode = env.PI_MEMORY_CONTEXT_MODE ?? fileConfig.contextMode ?? "bootstrap";
 	const contextMode: ContextMode = requestedContextMode === "full" || requestedContextMode === "off"
@@ -112,6 +118,7 @@ export function buildConfig(env: Record<string, string | undefined> = process.en
 		autocommit,
 		timezone,
 		contextMode,
+		ancestry,
 	};
 }
 
@@ -667,4 +674,157 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 	}
 
 	return { fileMatches, lineResults };
+}
+
+// --- Session ancestry ---
+//
+// Pi records session lineage in two places but exposes no easy way to read it:
+//   - `parentSession` in each session file's JSONL header links a forked or
+//     cloned session to the file it came from (cross-thread lineage).
+//   - `parentId` on each entry links entries within one session (in-thread
+//     lineage; read from the live session via the extension API, not here).
+//
+// walkSessionAncestry follows the cross-file `parentSession` chain from a
+// starting session file up to the root. It is pure: the caller supplies a
+// `readHeader` function so it can be unit-tested without touching disk.
+
+export interface SessionHeader {
+	id?: string;
+	timestamp?: string;
+	cwd?: string;
+	parentSession?: string;
+	name?: string;
+}
+
+export interface AncestorNode {
+	/** Absolute path to the session JSONL file. */
+	file: string;
+	/** Session id from the header, if present. */
+	sessionId?: string;
+	/** Session name / title, if the file recorded one. */
+	name?: string;
+	/** cwd the session ran in. */
+	cwd?: string;
+	/** Header timestamp. */
+	createdAt?: string;
+	/** Depth from the starting session (0 = current). */
+	depth: number;
+	/** Why the walk stopped at or after this node, if it did. */
+	note?: string;
+}
+
+export interface AncestryResult {
+	chain: AncestorNode[];
+	truncatedAtDepth?: number;
+}
+
+export const ANCESTRY_MAX_DEPTH = 64;
+
+/** Parse the first line (header) of a session JSONL file into a SessionHeader. */
+export function parseSessionHeader(file: string): SessionHeader | null {
+	let raw: string;
+	try {
+		// Read only enough for the first line; headers are small.
+		raw = fs.readFileSync(file, "utf-8");
+	} catch {
+		return null;
+	}
+	const newline = raw.indexOf("\n");
+	const firstLine = newline === -1 ? raw : raw.slice(0, newline);
+	if (!firstLine.trim()) return null;
+	try {
+		const obj = JSON.parse(firstLine) as Record<string, unknown>;
+		return {
+			id: typeof obj.id === "string" ? obj.id : undefined,
+			timestamp: typeof obj.timestamp === "string" ? obj.timestamp : undefined,
+			cwd: typeof obj.cwd === "string" ? obj.cwd : undefined,
+			parentSession: typeof obj.parentSession === "string" ? obj.parentSession : undefined,
+			name: typeof obj.name === "string" ? obj.name : undefined,
+		};
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Walk the cross-file parentSession chain from `startFile` up to the root.
+ * depth 0 is the starting (current) session; higher depths are older ancestors.
+ * Guards against cycles, missing files, and runaway chains (ANCESTRY_MAX_DEPTH).
+ */
+export function walkSessionAncestry(
+	startFile: string,
+	readHeader: (file: string) => SessionHeader | null = parseSessionHeader,
+): AncestryResult {
+	const chain: AncestorNode[] = [];
+	const seen = new Set<string>();
+	let file: string | undefined = startFile;
+	let depth = 0;
+
+	while (file) {
+		if (seen.has(file)) {
+			chain.push({ file, depth, note: "stopped: parentSession points back into the chain (cycle)" });
+			break;
+		}
+		seen.add(file);
+
+		const header = readHeader(file);
+		if (!header) {
+			chain.push({ file, depth, note: "stopped: session file missing or header unreadable" });
+			break;
+		}
+
+		chain.push({
+			file,
+			sessionId: header.id,
+			name: header.name,
+			cwd: header.cwd,
+			createdAt: header.timestamp,
+			depth,
+		});
+
+		if (!header.parentSession) break; // root reached: no parent recorded
+		if (depth + 1 >= ANCESTRY_MAX_DEPTH) {
+			return { chain, truncatedAtDepth: depth + 1 };
+		}
+		file = header.parentSession;
+		depth += 1;
+	}
+
+	return { chain };
+}
+
+/** Render an ancestry result as human-readable text for a tool or command. */
+export function formatAncestry(
+	result: AncestryResult,
+	entryLineage?: { count: number; rootId: string | null; leafId: string | null },
+): string {
+	const { chain, truncatedAtDepth } = result;
+	if (chain.length === 0) {
+		return "No session file is associated with this thread (ephemeral session), so it has no recorded ancestors.";
+	}
+	const lines: string[] = [];
+	const n = chain.length;
+	if (n === 1 && !chain[0].note) {
+		lines.push("This thread is a root session: it was not forked or cloned, so it has no ancestor threads.");
+	} else {
+		lines.push(`This thread has ${n - 1} ancestor thread(s), newest first:`);
+	}
+	for (const node of chain) {
+		const label = node.depth === 0 ? "current" : `parent +${node.depth}`;
+		const who = node.name ? `"${node.name}"` : node.sessionId ? node.sessionId : path.basename(node.file);
+		const when = node.createdAt ? ` · ${node.createdAt}` : "";
+		lines.push(`  [${label}] ${who}${when}`);
+		lines.push(`           ${node.file}`);
+		if (node.note) lines.push(`           ${node.note}`);
+	}
+	if (truncatedAtDepth !== undefined) {
+		lines.push(`  (stopped after ${ANCESTRY_MAX_DEPTH} levels; chain may continue)`);
+	}
+	if (entryLineage) {
+		lines.push(
+			`In-thread entry lineage on the current branch: ${entryLineage.count} entries ` +
+				`(root ${entryLineage.rootId ?? "?"} → leaf ${entryLineage.leafId ?? "?"}).`,
+		);
+	}
+	return lines.join("\n");
 }

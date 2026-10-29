@@ -39,6 +39,7 @@ Identity and behavioral files (e.g. `SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`) can 
 | `memory_read` | Read MEMORY.md (`long_term`), SCRATCHPAD.md (`scratchpad`), daily logs (`daily`), notes (`note`), any root file (`file`), or list everything (`list`). |
 | `memory_search` | Search across all files — filenames and content. Case-insensitive keyword search across root, notes/, and daily/. |
 | `scratchpad` | Manage a checklist: `add`, `done`, `undo`, `clear_done`, `list`. |
+| `session_ancestry` | *(opt-in)* Find this thread's ancestor sessions — walks the cross-file `parentSession` chain from the current session up to the root (the sessions it was forked or cloned from), newest first. Read-only. |
 
 ## Context Injection
 
@@ -51,6 +52,17 @@ Compatibility modes:
 - `off` — inject nothing
 
 `SCRATCHPAD.md`, files in `notes/`, and older daily logs are always available on demand through the memory tools.
+
+## Session Ancestry (opt-in)
+
+Pi records session lineage but offers no easy way to read it: a forked or cloned session stores a `parentSession` path in its JSONL header, and entries within one session link via `parentId`. An agent only gets `PI_SESSION_FILE` at runtime, so it has no simple way to answer "what threads am I descended from?"
+
+When enabled (`PI_ANCESTRY=1` or `"ancestry": true` in `.pi-mem.json`), pi-mem registers:
+
+- a model-callable `session_ancestry` tool that walks the cross-file `parentSession` chain from the current session up to the root, newest first, and can optionally summarize the current branch's in-thread `parentId` lineage; and
+- an `/ancestry` command that prints the same chain for you.
+
+Both are read-only and guard against cycles, missing files, and runaway chains. The feature is **off by default**, so it adds no tools or context unless you turn it on.
 
 ## Configuration
 
@@ -65,7 +77,8 @@ Place a `.pi-mem.json` in your memory directory (default `~/.pi/agent/memory/.pi
   "searchDirs": ["catchup", "projects"],
   "contextFiles": ["SOUL.md", "AGENTS.md"],
   "contextMode": "bootstrap",
-  "autocommit": true
+  "autocommit": true,
+  "ancestry": false
 }
 ```
 
@@ -81,6 +94,7 @@ Environment variables override `.pi-mem.json` values when set.
 | `PI_SEARCH_DIRS` | *(empty)* | Comma-separated list of subdirectories (relative to `PI_MEMORY_DIR`) to include in `memory_search`. Searched recursively one level deep. (e.g. `catchup,projects`) |
 | `PI_AUTOCOMMIT` | `false` | When `1` or `true`, auto-commit to git after every write |
 | `PI_MEMORY_CONTEXT_MODE` | `bootstrap` | Context mode: `bootstrap`, `full`, or `off` |
+| `PI_ANCESTRY` | `false` | When `1` or `true`, registers the `session_ancestry` tool and `/ancestry` command. Off by default. |
 | `PI_TIMEZONE` | `TZ`, then `UTC` | IANA timezone used for daily log filenames and today/yesterday context windows. Invalid values fall back to `UTC`. |
 
 ## Dashboard Widget

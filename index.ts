@@ -53,6 +53,8 @@ import {
 	isHousekeeping,
 	searchMemory,
 	resolveSessionsDir,
+	walkSessionAncestry,
+	formatAncestry,
 } from "./lib.ts";
 
 const config = buildConfig();
@@ -732,4 +734,74 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 	});
+
+	// session_ancestry tool + /ancestry command (opt-in via config.ancestry)
+	if (config.ancestry) {
+		const summarizeEntryLineage = (ctx: any): { count: number; rootId: string | null; leafId: string | null } | undefined => {
+			try {
+				const branch = ctx.sessionManager.getBranch();
+				if (!branch || branch.length === 0) return { count: 0, rootId: null, leafId: null };
+				const first = branch[0];
+				const last = branch[branch.length - 1];
+				return {
+					count: branch.length,
+					rootId: typeof first?.id === "string" ? first.id : null,
+					leafId: typeof last?.id === "string" ? last.id : null,
+				};
+			} catch {
+				return undefined;
+			}
+		};
+
+		const computeAncestry = (ctx: any, includeEntryLineage: boolean) => {
+			const currentFile = process.env.PI_SESSION_FILE || undefined;
+			if (!currentFile) {
+				return { currentFile: undefined, result: { chain: [] }, entryLineage: undefined };
+			}
+			const result = walkSessionAncestry(currentFile);
+			const entryLineage = includeEntryLineage ? summarizeEntryLineage(ctx) : undefined;
+			return { currentFile, result, entryLineage };
+		};
+
+		pi.registerTool({
+			name: "session_ancestry",
+			label: "Session Ancestry",
+			description: [
+				"Find this thread's ancestor sessions. Walks the cross-file parentSession chain from the current",
+				"session up to the root (the sessions this thread was forked or cloned from), newest first.",
+				"Set includeEntryLineage to also summarize the in-thread entry (parentId) chain of the current branch.",
+				"Read-only.",
+			].join(" "),
+			parameters: Type.Object({
+				includeEntryLineage: Type.Optional(
+					Type.Boolean({
+						description:
+							"Also summarize the in-thread entry lineage (parentId chain) of the current branch. Default false.",
+					}),
+				),
+			}),
+			annotations: { readOnlyHint: true },
+			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+				const { currentFile, result, entryLineage } = computeAncestry(ctx, params.includeEntryLineage === true);
+				const text = formatAncestry(result, entryLineage);
+				return {
+					content: [{ type: "text", text }],
+					details: {
+						currentFile,
+						chain: result.chain,
+						truncatedAtDepth: result.truncatedAtDepth,
+						entryLineage,
+					},
+				};
+			},
+		});
+
+		pi.registerCommand("ancestry", {
+			description: "Show this thread's ancestor sessions (fork/clone chain)",
+			handler: async (_arg: string, ctx: any) => {
+				const { result, entryLineage } = computeAncestry(ctx, true);
+				ctx.ui.notify(formatAncestry(result, entryLineage), "info");
+			},
+		});
+	}
 }

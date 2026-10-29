@@ -16,6 +16,7 @@ describe("buildConfig", () => {
 		assert.strictEqual(config.autocommit, false);
 		assert.strictEqual(config.timezone, "UTC");
 		assert.strictEqual(config.contextMode, "bootstrap");
+		assert.strictEqual(config.ancestry, false);
 	});
 
 	it("respects PI_MEMORY_DIR override", () => {
@@ -76,6 +77,18 @@ describe("buildConfig", () => {
 		assert.strictEqual(config.autocommit, false);
 	});
 
+	it("enables ancestry with PI_ANCESTRY=1", () => {
+		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_ANCESTRY: "1" }).ancestry, true);
+	});
+
+	it("enables ancestry with PI_ANCESTRY=true", () => {
+		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_ANCESTRY: "true" }).ancestry, true);
+	});
+
+	it("does not enable ancestry with PI_ANCESTRY=0", () => {
+		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_ANCESTRY: "0" }).ancestry, false);
+	});
+
 	it("parses PI_SEARCH_DIRS as comma-separated list", () => {
 		const config = buildConfig({ HOME: "/home/x", PI_SEARCH_DIRS: "catchup, projects" });
 		assert.deepStrictEqual(config.searchDirs, ["catchup", "projects"]);
@@ -119,6 +132,22 @@ describe("buildConfig", () => {
 		assert.deepStrictEqual(config.contextFiles, ["SOUL.md"]);
 		assert.strictEqual(config.autocommit, true);
 		assert.strictEqual(config.contextMode, "full");
+		cleanup(memDir);
+	});
+
+	it("reads ancestry flag from .pi-mem.json", () => {
+		const memDir = makeTempDir();
+		writeFile(path.join(memDir, ".pi-mem.json"), JSON.stringify({ ancestry: true }));
+		const config = buildConfig({ HOME: "/home/x", PI_MEMORY_DIR: memDir });
+		assert.strictEqual(config.ancestry, true);
+		cleanup(memDir);
+	});
+
+	it("PI_ANCESTRY overrides .pi-mem.json ancestry", () => {
+		const memDir = makeTempDir();
+		writeFile(path.join(memDir, ".pi-mem.json"), JSON.stringify({ ancestry: true }));
+		const config = buildConfig({ HOME: "/home/x", PI_MEMORY_DIR: memDir, PI_ANCESTRY: "0" });
+		assert.strictEqual(config.ancestry, false);
 		cleanup(memDir);
 	});
 
