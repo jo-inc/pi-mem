@@ -391,16 +391,33 @@ export default function (pi: ExtensionAPI) {
 	// section once per run, instead of re-sending it as a user message every turn.
 	// Pi records this as a transcript delta, so the prompt prefix stays cacheable
 	// and the model does not keep re-acknowledging a fresh instruction each turn.
+	// Expose the system-mode memory section for hosts that build their own prompt
+	// (pi-sdk-wrapper). Such a host snapshots the prompt when the run starts, i.e.
+	// BEFORE before_agent_start fires, and the memory file may be written after this
+	// module loads (fresh machines, tests). So this is a getter that reads the file
+	// at the moment the host builds its prompt, not a value cached at load time.
+	Object.defineProperty(globalThis, "__piMemSystemSection", {
+		configurable: true,
+		enumerable: false,
+		get: () => (config.contextMode === "system" ? (buildSystemGuidelines().trim() || undefined) : undefined),
+	});
+
 	pi.on("before_agent_start", (event) => {
+		// `sections` is not guaranteed to exist on the options object a host passes
+		// in (pi-sdk-wrapper's did not). Writing through an undefined `sections`
+		// threw a TypeError that Pi swallowed, so system mode silently injected
+		// nothing on every turn. Always create it before touching it.
+		const opts: any = event.systemPromptOptions;
+		if (!opts.sections || typeof opts.sections !== "object") opts.sections = {};
 		if (config.contextMode !== "system") {
-			delete event.systemPromptOptions.sections.pi_mem_memory;
+			delete opts.sections.pi_mem_memory;
 			return;
 		}
-		const guidelines = buildSystemGuidelines();
-		if (guidelines.trim()) {
-			event.systemPromptOptions.sections.pi_mem_memory = guidelines;
+		const guidelines = buildSystemGuidelines().trim();
+		if (guidelines) {
+			opts.sections.pi_mem_memory = guidelines;
 		} else {
-			delete event.systemPromptOptions.sections.pi_mem_memory;
+			delete opts.sections.pi_mem_memory;
 		}
 	});
 
