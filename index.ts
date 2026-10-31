@@ -31,6 +31,7 @@ import { Type } from "@sinclair/typebox";
 import { StringEnum, completeSimple, getModel } from "@earendil-works/pi-ai/compat";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 
 import {
@@ -55,9 +56,76 @@ import {
 	resolveSessionsDir,
 	walkSessionAncestry,
 	formatAncestry,
+	buildRecallConfig,
+	latestUserText,
+	filterConversationRows,
+	formatRecallBlock,
+	RECALL_DIRECTIVE,
 } from "./lib.ts";
 
 const config = buildConfig();
+const recallConfig = buildRecallConfig();
+
+// --- Automatic recall against the per-user Sprite (LanceDB conversations, SQLite facts) ---
+//
+// pi-mem runs inside pi-sdk-wrapper on the user's machine, which exposes the
+// Sprite URL and the shared HMAC secret in the environment. Tokens are short-lived
+// sprite_access JWTs, identical in shape to the wrapper's own.
+
+const SPRITE_URL = (process.env.PI_SPRITE_URL || "http://localhost:3001").replace(/\/$/, "");
+const SPRITE_TOKEN = (process.env.SPRITE_TOKEN || "").trim();
+const SPRITE_USER_ID = Number(process.env.USER_ID || "0");
+
+function spriteAccessToken(): string | null {
+	if (!SPRITE_TOKEN) return null;
+	const now = Math.floor(Date.now() / 1000);
+	const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+	const payload: Record<string, unknown> = { sub: "pi-mem", typ: "sprite_access", iat: now, exp: now + 90, jti: crypto.randomUUID() };
+	if (Number.isFinite(SPRITE_USER_ID) && SPRITE_USER_ID > 0) payload.user_id = String(SPRITE_USER_ID);
+	const input = `${b64({ alg: "HS256", typ: "JWT" })}.${b64(payload)}`;
+	const sig = crypto.createHmac("sha256", SPRITE_TOKEN).update(input).digest("base64url");
+	return `${input}.${sig}`;
+}
+
+async function spritePost(route: string, body: unknown, timeoutMs: number): Promise<any | null> {
+	const token = spriteAccessToken();
+	if (!token) return null;
+	try {
+		const resp = await fetch(`${SPRITE_URL}${route}`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+			body: JSON.stringify(body),
+			signal: AbortSignal.timeout(timeoutMs),
+		});
+		if (!resp.ok) return null;
+		return await resp.json();
+	} catch {
+		return null; // Sprite unavailable -> degrade to file-only recall
+	}
+}
+
+async function recallConversations(query: string): Promise<ReturnType<typeof filterConversationRows>> {
+	const data = await spritePost("/conversation/search", { query, limit: recallConfig.maxConversationRows * 3 }, recallConfig.conversationTimeoutMs);
+	const rows = Array.isArray(data?.rows) ? data.rows : [];
+	return filterConversationRows(rows, recallConfig.conversationMaxDistance, recallConfig.maxConversationRows);
+}
+
+async function recallFacts(query: string): Promise<{ tag?: string; label?: string; instructions: string }[]> {
+	if (!recallConfig.sqliteFacts || !(SPRITE_USER_ID > 0)) return [];
+	const terms = query.toLowerCase().replace(/[^a-z0-9\s]+/g, " ").split(/\s+/).filter(t => t.length >= 3).slice(0, 6);
+	if (terms.length === 0) return [];
+	const where = terms.map(() => "(lower(instructions) LIKE ? OR lower(label) LIKE ? OR lower(tag) LIKE ?)").join(" OR ");
+	const params: unknown[] = [SPRITE_USER_ID];
+	for (const t of terms) params.push(`%${t}%`, `%${t}%`, `%${t}%`);
+	const data = await spritePost("/db/query", {
+		sql: `SELECT tag, label, instructions FROM user_facts WHERE user_id = ? AND (${where}) ORDER BY updated_at DESC LIMIT 6`,
+		params,
+	}, recallConfig.conversationTimeoutMs);
+	const rows = Array.isArray(data?.rows) ? data.rows : [];
+	return rows
+		.filter((r: any) => r && typeof r.instructions === "string" && r.instructions.trim())
+		.map((r: any) => ({ tag: typeof r.tag === "string" ? r.tag : undefined, label: typeof r.label === "string" ? r.label : undefined, instructions: r.instructions }));
+}
 
 function gitCommit(message: string) {
 	if (!config.autocommit) return;
@@ -350,6 +418,29 @@ export default function (pi: ExtensionAPI) {
 		if (rebuildTimer) { clearInterval(rebuildTimer); rebuildTimer = null; }
 	});
 
+	// Bootstrap mode: retrieve memory relevant to the latest user message so the
+	// model never has to decide to look for facts it already has, then append the
+	// directive. Retrieval is best-effort and bounded; any failure degrades to the
+	// directive alone.
+	async function buildBootstrapRecall(messages: any[]): Promise<string> {
+		if (!recallConfig.enabled) return RECALL_DIRECTIVE;
+		const query = latestUserText(messages);
+		if (!query) return RECALL_DIRECTIVE;
+		let block = "";
+		try {
+			const [conversations, facts] = await Promise.all([recallConversations(query), recallFacts(query)]);
+			const memoryBody = readFileSafe(config.memoryFile) ?? "";
+			const useFull = memoryBody.trim().length > 0 && memoryBody.length <= recallConfig.fullFileMaxChars;
+			const hits = searchMemory(config, query, recallConfig.maxFileLines).lineResults;
+			// When the whole file is included, only surface retrieved lines from OTHER files.
+			const fileLines = useFull ? hits.filter(h => h.file !== "MEMORY.md") : hits;
+			block = formatRecallBlock({ fullMemory: useFull ? memoryBody : undefined, fileLines, conversations, facts });
+		} catch {
+			block = "";
+		}
+		return block ? `${block}\n\n${RECALL_DIRECTIVE}` : RECALL_DIRECTIVE;
+	}
+
 	// Inject memory as a trailing user message, leaving the stable system prompt
 	// untouched for prompt caching. The default bootstrap mode keeps file bodies
 	// on disk and makes them available through the memory tools on demand.
@@ -363,10 +454,7 @@ export default function (pi: ExtensionAPI) {
 				"",
 				buildMemoryContext(config),
 			].join("\n")
-			: [
-				"Memory is available on demand through memory_search and memory_read; file bodies are not loaded.",
-				"Use memory_write for explicit remember requests and durable preferences or decisions.",
-			].join("\n");
+			: await buildBootstrapRecall(event.messages);
 
 		return {
 			messages: [
