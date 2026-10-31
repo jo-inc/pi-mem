@@ -11,7 +11,7 @@ import { createInterface } from "node:readline";
 
 // --- Config ---
 
-export type ContextMode = "bootstrap" | "full" | "off";
+export type ContextMode = "bootstrap" | "full" | "system" | "off";
 
 export interface MemoryConfig {
 	memoryDir: string;
@@ -46,7 +46,7 @@ export function loadConfigFile(memoryDir: string): FileConfig {
 		if (Array.isArray(parsed.contextFiles)) result.contextFiles = parsed.contextFiles.filter((s: unknown) => typeof s === "string");
 		if (Array.isArray(parsed.searchDirs)) result.searchDirs = parsed.searchDirs.filter((s: unknown) => typeof s === "string");
 		if (typeof parsed.autocommit === "boolean") result.autocommit = parsed.autocommit;
-		if (parsed.contextMode === "bootstrap" || parsed.contextMode === "full" || parsed.contextMode === "off") {
+		if (parsed.contextMode === "bootstrap" || parsed.contextMode === "full" || parsed.contextMode === "system" || parsed.contextMode === "off") {
 			result.contextMode = parsed.contextMode;
 		}
 		if (typeof parsed.ancestry === "boolean") result.ancestry = parsed.ancestry;
@@ -103,7 +103,7 @@ export function buildConfig(env: Record<string, string | undefined> = process.en
 		: (fileConfig.ancestry ?? false);
 	const timezone = normalizeTimeZone(env.PI_TIMEZONE ?? env.TZ ?? "UTC");
 	const requestedContextMode = env.PI_MEMORY_CONTEXT_MODE ?? fileConfig.contextMode ?? "bootstrap";
-	const contextMode: ContextMode = requestedContextMode === "full" || requestedContextMode === "off"
+	const contextMode: ContextMode = requestedContextMode === "full" || requestedContextMode === "system" || requestedContextMode === "off"
 		? requestedContextMode
 		: "bootstrap";
 

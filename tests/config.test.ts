@@ -38,6 +38,10 @@ describe("buildConfig", () => {
 		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_MEMORY_CONTEXT_MODE: "off" }).contextMode, "off");
 	});
 
+	it("supports system context mode", () => {
+		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_MEMORY_CONTEXT_MODE: "system" }).contextMode, "system");
+	});
+
 	it("falls back to bootstrap for an invalid context mode", () => {
 		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_MEMORY_CONTEXT_MODE: "invalid" }).contextMode, "bootstrap");
 	});

@@ -106,3 +106,25 @@ describe("formatRecallBlock full-file mode", () => {
 		assert.strictEqual(buildRecallConfig({ PI_MEMORY_RECALL_FULL_MAX_CHARS: "500" }).fullFileMaxChars, 500);
 	});
 });
+
+describe("system mode recall shape", () => {
+	// In system mode, durable MEMORY.md lives in the cached system prompt, so the
+	// per-turn recall block must NOT re-include MEMORY.md lines; it carries only
+	// other-file hits, conversations, and facts. These assert the formatter pieces
+	// buildSystemTurnRecall relies on.
+	it("formats only non-MEMORY file hits plus conversations/facts", () => {
+		const block = formatRecallBlock({
+			fullMemory: undefined,
+			fileLines: [{ file: "notes/lessons.md", line: 3, text: "ship small PRs" }],
+			conversations: [{ content: "we discussed the launch date", role: "user", created_at: "2026-10-01T00:00:00Z" }],
+			facts: [],
+		});
+		assert.ok(block.includes("notes/lessons.md"));
+		assert.ok(block.includes("launch date"));
+		assert.ok(!block.includes("MEMORY.md"));
+	});
+
+	it("is silent (empty) when nothing relevant is retrieved", () => {
+		assert.strictEqual(formatRecallBlock({ fullMemory: undefined, fileLines: [], conversations: [], facts: [] }), "");
+	});
+});
