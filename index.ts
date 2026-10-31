@@ -504,24 +504,11 @@ export default function (pi: ExtensionAPI) {
 		if (config.contextMode === "off") return;
 
 		// System mode keeps durable memory + the directive in a cached system-prompt
-		// section (before_agent_start, below). Per turn it adds ONLY silent,
-		// query-relevant recall hits, and nothing when there are none \u2014 so there is no
-		// fresh instruction re-sent every turn (the acknowledgement loop) and the
-		// prompt prefix stays cacheable.
-		if (config.contextMode === "system") {
-			const block = await buildSystemTurnRecall(event.messages);
-			if (!block) return;
-			return {
-				messages: [
-					...event.messages,
-					{
-						role: "user" as const,
-						content: `<pi-mem-injected>\n${block}\n</pi-mem-injected>`,
-						timestamp: Date.now(),
-					},
-				],
-			};
-		}
+		// section (before_agent_start, below) and injects NOTHING per turn. The model
+		// pulls anything else it needs through memory_search / memory_read on demand.
+		// This keeps the prompt prefix cacheable and stops a recall block riding in on
+		// every message the way bootstrap/full do.
+		if (config.contextMode === "system") return;
 
 		const memoryInstructions = config.contextMode === "full"
 			? [
