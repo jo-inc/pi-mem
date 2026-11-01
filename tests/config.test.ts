@@ -1,5 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { buildConfig, resolveAgentDir, resolveHomeDir, resolveSessionsDir } from "../lib.ts";
 import { makeTempDir, cleanup, writeFile } from "./helpers.ts";
@@ -15,7 +17,12 @@ describe("buildConfig", () => {
 		assert.deepStrictEqual(config.contextFiles, []);
 		assert.strictEqual(config.autocommit, false);
 		assert.strictEqual(config.timezone, "UTC");
-		assert.strictEqual(config.contextMode, "bootstrap");
+		// System mode is the default for every user, including a config file that
+		// predates the field: MEMORY.md lives in the cached system prompt and a
+		// bounded retrieval message is added per turn. Bootstrap's per-turn full
+		// recall scanned the whole archive on every prompt and killed a 200 MB SDK
+		// wrapper on a machine with a large catchup folder (2026-11-01).
+		assert.strictEqual(config.contextMode, "system");
 		assert.strictEqual(config.ancestry, false);
 	});
 
@@ -42,8 +49,15 @@ describe("buildConfig", () => {
 		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_MEMORY_CONTEXT_MODE: "system" }).contextMode, "system");
 	});
 
-	it("falls back to bootstrap for an invalid context mode", () => {
-		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_MEMORY_CONTEXT_MODE: "invalid" }).contextMode, "bootstrap");
+	it("falls back to system for an invalid context mode", () => {
+		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_MEMORY_CONTEXT_MODE: "invalid" }).contextMode, "system");
+	});
+
+	it("a config file without contextMode (every existing machine) gets system mode; bootstrap stays available by explicit request", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pimem-cfg-"));
+		fs.writeFileSync(path.join(dir, ".pi-mem.json"), JSON.stringify({ searchDirs: ["catchup"], autocommit: false }));
+		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_MEMORY_DIR: dir }).contextMode, "system");
+		assert.strictEqual(buildConfig({ HOME: "/home/x", PI_MEMORY_DIR: dir, PI_MEMORY_CONTEXT_MODE: "bootstrap" }).contextMode, "bootstrap");
 	});
 
 	it("parses PI_CONTEXT_FILES as comma-separated list", () => {

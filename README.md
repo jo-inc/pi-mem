@@ -43,12 +43,12 @@ Identity and behavioral files (e.g. `SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`) can 
 
 ## Context Injection
 
-The default `bootstrap` mode injects only a short reminder that memory is available through `memory_search`, `memory_read`, and `memory_write`. Memory file bodies remain on disk and are loaded only when requested.
+The default `system` mode keeps `MEMORY.md` in a cached system-prompt section, condensed to about 3K tokens (a longer file is hard-cut at a line boundary with an ellipsis and a pointer to `memory_read(target='long_term')`), followed by the recall directive. Per turn it adds one trailing message, only when there is something to say: a retrieval block from other memory files, similar past conversations, and stored facts (capped near 3K tokens; whole items dropped, never fragments, with a `memory_search` pointer when anything was cut), plus today's and yesterday's daily logs with the latest entries kept (2,000-char cap, `memory_read(target='daily')` pointer). The long prompt prefix stays cacheable; only the small trailing message varies.
 
-Compatibility modes:
+Other modes:
 
-- `bootstrap` — short tool reminder only; the default
-- `full` — inject context files, `MEMORY.md`, today's and yesterday's logs, and catchup indexes
+- `bootstrap` — a per-turn recall block including `MEMORY.md` itself, injected as a user message every turn (no cached section)
+- `full` — inject context files, `MEMORY.md`, today's and yesterday's logs, and catchup indexes every turn
 - `off` — inject nothing
 
 `SCRATCHPAD.md`, files in `notes/`, and older daily logs are always available on demand through the memory tools.
@@ -76,7 +76,7 @@ Place a `.pi-mem.json` in your memory directory (default `~/.pi/agent/memory/.pi
 {
   "searchDirs": ["catchup", "projects"],
   "contextFiles": ["SOUL.md", "AGENTS.md"],
-  "contextMode": "bootstrap",
+  "contextMode": "system",
   "autocommit": true,
   "ancestry": false
 }
@@ -93,7 +93,7 @@ Environment variables override `.pi-mem.json` values when set.
 | `PI_CONTEXT_FILES` | *(empty)* | Comma-separated extra files used by `full` context mode |
 | `PI_SEARCH_DIRS` | *(empty)* | Comma-separated list of subdirectories (relative to `PI_MEMORY_DIR`) to include in `memory_search`. Searched recursively one level deep. (e.g. `catchup,projects`) |
 | `PI_AUTOCOMMIT` | `false` | When `1` or `true`, auto-commit to git after every write |
-| `PI_MEMORY_CONTEXT_MODE` | `bootstrap` | Context mode: `bootstrap`, `full`, or `off` |
+| `PI_MEMORY_CONTEXT_MODE` | `system` | Context mode: `system`, `bootstrap`, `full`, or `off` |
 | `PI_ANCESTRY` | `false` | When `1` or `true`, registers the `session_ancestry` tool and `/ancestry` command. Off by default. |
 | `PI_TIMEZONE` | `TZ`, then `UTC` | IANA timezone used for daily log filenames and today/yesterday context windows. Invalid values fall back to `UTC`. |
 

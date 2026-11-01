@@ -102,10 +102,13 @@ export function buildConfig(env: Record<string, string | undefined> = process.en
 		? (env.PI_ANCESTRY === "1" || env.PI_ANCESTRY === "true")
 		: (fileConfig.ancestry ?? false);
 	const timezone = normalizeTimeZone(env.PI_TIMEZONE ?? env.TZ ?? "UTC");
-	const requestedContextMode = env.PI_MEMORY_CONTEXT_MODE ?? fileConfig.contextMode ?? "bootstrap";
-	const contextMode: ContextMode = requestedContextMode === "full" || requestedContextMode === "system" || requestedContextMode === "off"
+	// "system" is the default for every user, including a config file that
+	// predates the field: MEMORY.md in the cached system prompt plus a bounded
+	// per-turn retrieval message. Bootstrap stays available by explicit request.
+	const requestedContextMode = env.PI_MEMORY_CONTEXT_MODE ?? fileConfig.contextMode ?? "system";
+	const contextMode: ContextMode = requestedContextMode === "full" || requestedContextMode === "bootstrap" || requestedContextMode === "off"
 		? requestedContextMode
-		: "bootstrap";
+		: "system";
 
 	return {
 		memoryDir,
