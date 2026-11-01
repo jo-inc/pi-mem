@@ -73,3 +73,54 @@ describe("searchMemory ranking on a realistic archive", () => {
 		assert.strictEqual(r.lineResults[0]?.file, "notes/dog-project.md", JSON.stringify(r.lineResults.slice(0, 3)));
 	});
 });
+
+/**
+ * Seen live in the owner's own Pi session (2026-11-01): a message with no
+ * content words ("this should be the same over here too right?") still
+ * injected a block of unrelated lines, and the top hit was AGENTS.md: a
+ * context file that is already in the prompt.
+ */
+describe("per-turn retrieval knows when to stay quiet", () => {
+	it("excludes context files (and MEMORY.md) from line hits", async () => {
+		const { searchMemory, ensureDirs } = await import("../lib.ts");
+		const config = makeConfig(tmpDir, { contextFiles: ["SOUL.md", "AGENTS.md"] });
+		ensureDirs(config);
+		fs.writeFileSync(path.join(config.memoryDir, "AGENTS.md"), "- Always cite the crime show source.\n");
+		fs.writeFileSync(path.join(config.memoryDir, "SOUL.md"), "- Crime shows are a fine way to unwind.\n");
+		fs.writeFileSync(config.memoryFile, "- Likes crime shows.\n");
+		fs.writeFileSync(path.join(config.notesDir, "crime-shows.md"), "- Luther, Happy Valley.\n");
+		const r = searchMemory(config, "crime shows", 8, { excludeContextFiles: true });
+		const files = new Set(r.lineResults.map(h => h.file));
+		assert.ok(files.has("notes/crime-shows.md"));
+		assert.ok(!files.has("AGENTS.md") && !files.has("SOUL.md") && !files.has("MEMORY.md"), JSON.stringify([...files]));
+	});
+
+	it("returns nothing for a query with no content words, instead of random lines", async () => {
+		const { searchMemory, ensureDirs } = await import("../lib.ts");
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		fs.writeFileSync(path.join(config.notesDir, "a.md"), "- the same thing happened here, right over there\n- another line\n");
+		const r = searchMemory(config, "this should be the same over here too right?", 8);
+		assert.deepStrictEqual(r.lineResults, [], JSON.stringify(r.lineResults));
+	});
+
+	it("a term that matches most lines adds nothing when another term in the query is rare", async () => {
+		const { searchMemory, ensureDirs } = await import("../lib.ts");
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		// "shipped" is on every line of every daily log; "biscuit" is on one line.
+		for (let d = 0; d < 20; d++) fs.writeFileSync(path.join(config.dailyDir, `2026-01-${String(d + 1).padStart(2, "0")}.md`), Array.from({ length: 30 }, () => "- shipped something").join("\n"));
+		fs.writeFileSync(path.join(config.notesDir, "dog.md"), "- shipped Biscuit's new collar\n");
+		const r = searchMemory(config, "shipped biscuit collar", 8);
+		assert.deepStrictEqual(r.lineResults.map(h => h.file), ["notes/dog.md"], JSON.stringify(r.lineResults.slice(0, 3)));
+	});
+
+	it("a bare single content word still matches everywhere it appears", async () => {
+		const { searchMemory, ensureDirs } = await import("../lib.ts");
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		for (let d = 0; d < 20; d++) fs.writeFileSync(path.join(config.dailyDir, `2026-01-${String(d + 1).padStart(2, "0")}.md`), Array.from({ length: 30 }, () => "- today we shipped something").join("\n"));
+		const r = searchMemory(config, "today", 8);
+		assert.strictEqual(r.lineResults.length, 8);
+	});
+});

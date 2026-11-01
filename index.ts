@@ -495,7 +495,7 @@ export default function (pi: ExtensionAPI) {
 		try {
 			// Durable MEMORY.md is already in the system prompt in this mode, so only
 			// surface retrieved lines from OTHER files plus conversation/fact hits.
-			hits = searchMemory(config, query, recallConfig.maxFileLines).lineResults.filter(h => h.file !== "MEMORY.md");
+			hits = searchMemory(config, query, recallConfig.maxFileLines, { excludeContextFiles: true }).lineResults;
 		} catch {}
 		return formatRecallBlock({ fullMemory: undefined, fileLines: hits, conversations, facts });
 	}

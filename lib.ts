@@ -647,19 +647,38 @@ function stemToken(tok: string): string {
 }
 
 function tokenizeQuery(query: string): string[] {
-	const raw = query
+	const words = query
 		.toLowerCase()
 		.replace(/[^a-z0-9\s]+/g, " ")
 		.split(/\s+/)
-		.filter(t => t.length >= 2 && !SEARCH_STOPWORDS.has(t));
+		.filter(t => t.length >= 2);
+	// Drop stopwords only when a content word remains. A deliberate search for
+	// "no name" or "memory" means those words; in a sentence they are noise.
+	// Sentence glue ("same", "here", "right", "too") never counts as content,
+	// even in a bare query: it distinguishes nothing.
+	const content = words.filter(t => !SEARCH_STOPWORDS.has(t) && !SEARCH_SENTENCE_GLUE.has(t));
+	const kept = content.length > 0 ? content : words.filter(t => !SEARCH_SENTENCE_GLUE.has(t));
 	const seen = new Set<string>();
 	const out: string[] = [];
-	for (const t of raw) {
+	for (const t of kept) {
 		const s = stemToken(t);
 		if (!seen.has(s)) { seen.add(s); out.push(s); }
 	}
 	return out;
 }
+
+// Words that never mean anything on their own, even in a bare query: a query
+// made only of these carries no signal and retrieves nothing.
+const SEARCH_SENTENCE_GLUE = new Set([
+	"a", "an", "the", "of", "to", "for", "and", "or", "in", "on", "at", "is",
+	"are", "be", "was", "were", "with", "how", "what", "why", "when", "where",
+	"do", "does", "did", "we", "i", "you", "it", "its", "this", "that", "these",
+	"those", "as", "by", "from", "into", "about", "can", "could", "should",
+	"would", "will", "has", "have", "had", "our", "my", "your", "so", "if",
+	"then", "than", "but", "also", "very", "too", "same", "here", "there",
+	"right", "ok", "okay", "cool", "yes", "yeah", "yep", "sure", "thanks",
+	"please", "me", "him", "her", "them", "us", "over", "just", "now",
+]);
 
 /**
  * Keyword search: the query is split into words, each matched case-insensitively
@@ -667,15 +686,23 @@ function tokenizeQuery(query: string): string[] {
  * contain (ties broken by file order then line number), then the top
  * `maxResults` are returned. A one-word query behaves like a substring match.
  */
-export function searchMemory(config: MemoryConfig, query: string, maxResults: number = 20): SearchResult {
+export interface SearchOptions {
+	/** Skip MEMORY.md and the configured context files: they are already in the prompt. */
+	excludeContextFiles?: boolean;
+}
+
+export function searchMemory(config: MemoryConfig, query: string, maxResults: number = 20, options: SearchOptions = {}): SearchResult {
 	const tokens = tokenizeQuery(query);
 	const fileMatches: string[] = [];
 	const fileMatchSet = new Set<string>();
 
-	// Fall back to the raw lowercased query if tokenization yields nothing
-	// (e.g. a query made only of stopwords or punctuation).
-	const terms = tokens.length > 0 ? tokens : [query.toLowerCase().trim()].filter(Boolean);
+	// A query made only of stopwords or punctuation carries no signal: return
+	// nothing rather than whichever lines happen to share "same"/"here"/"right"
+	// (seen live, 2026-11-01). Callers that want substring behaviour for a bare
+	// single word still get it, since one real word is one token.
+	const terms = tokens;
 	if (terms.length === 0) return { fileMatches, lineResults: [] };
+	const excluded = new Set<string>(options.excludeContextFiles ? ["MEMORY.md", ...config.contextFiles] : []);
 	// Whole-word, stem-tolerant match: "show" matches "show"/"shows"/"showed",
 	// never "no" in "know" or "name" in "filename".
 	const matchers = terms.map(t => new RegExp(`(^|[^a-z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[a-z]{0,3}(?=$|[^a-z0-9])`, "i"));
@@ -694,6 +721,7 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 
 	function searchFile(filePath: string, displayName: string) {
 		if (budgetExhausted) return;
+		if (excluded.has(displayName)) return;
 		const order = fileOrder++;
 		const nameLower = displayName.toLowerCase().replace(/[-_./]+/g, " ");
 		const nameHit = matchers.some(m => m.test(nameLower));
@@ -766,13 +794,29 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 	// worth little, one that matched a handful of lines is worth a lot.
 	const total = Math.max(1, candidates.length);
 	const weights = termLineCounts.map(c => Math.log1p(total / Math.max(1, c)));
+	// A term that matched most candidate lines distinguishes nothing. Lines
+	// whose only matches are such terms are dropped, so "ok cool today" over a
+	// pile of logs that all say "today" injects nothing (name hits are kept:
+	// the person titled that file for this lookup).
+	// Only relative: with a single term, or when every term is equally common,
+	// the query means exactly what it says and all hits stand. A term is
+	// uninformative only when it matched most candidates AND some other term
+	// in the same query did not.
+	const anyRare = termLineCounts.some(c => c / total < SEARCH_SIGNAL_MAX_SHARE);
+	const informative = termLineCounts.map(c => terms.length === 1 || total < SEARCH_SIGNAL_MIN_CANDIDATES || !anyRare || c / total < SEARCH_SIGNAL_MAX_SHARE);
 	// Lines of a name-matched file start at the value of one rare term.
 	const nameFloor = Math.max(...weights, 0);
-	const scored = candidates.map(h => {
+	const scored = candidates.flatMap(h => {
 		let score = 0;
-		for (let i = 0; i < weights.length; i++) if (h.mask & (1 << i)) score += weights[i];
+		let signal = h.nameHit;
+		for (let i = 0; i < weights.length; i++) {
+			if (!(h.mask & (1 << i))) continue;
+			score += weights[i];
+			if (informative[i]) signal = true;
+		}
+		if (!signal) return [];
 		if (h.nameHit) score = score * 2 + nameFloor;
-		return { ...h, score };
+		return [{ ...h, score }];
 	});
 	// Rank: weighted score, then file order, then line number.
 	scored.sort((a, b) => b.score - a.score || a.order - b.order || a.line - b.line);
@@ -830,6 +874,10 @@ export const SEARCH_MAX_FILE_MATCHES = 50;
 export const SEARCH_MAX_CANDIDATE_LINES = 20000;
 /** When a file's name matches the query, its first N non-empty lines are kept as candidates too. */
 export const SEARCH_NAME_HIT_LEAD_LINES = 12;
+/** A term matching at least this share of candidate lines carries no signal on its own. */
+export const SEARCH_SIGNAL_MAX_SHARE = 0.5;
+/** Below this many candidate lines the share test is skipped (tiny archives). */
+export const SEARCH_SIGNAL_MIN_CANDIDATES = 40;
 
 export const ANCESTRY_MAX_DEPTH = 64;
 
