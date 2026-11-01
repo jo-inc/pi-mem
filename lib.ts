@@ -657,38 +657,71 @@ function tokenizeQuery(query: string): string[] {
 export function searchMemory(config: MemoryConfig, query: string, maxResults: number = 20): SearchResult {
 	const tokens = tokenizeQuery(query);
 	const fileMatches: string[] = [];
-	// Collect ALL hits first (with score + a stable file order index), then rank.
-	const hits: { file: string; line: number; text: string; score: number; order: number }[] = [];
-	let fileOrder = 0;
+	const fileMatchSet = new Set<string>();
 
 	// Fall back to the raw lowercased query if tokenization yields nothing
 	// (e.g. a query made only of stopwords or punctuation).
 	const terms = tokens.length > 0 ? tokens : [query.toLowerCase().trim()].filter(Boolean);
 	if (terms.length === 0) return { fileMatches, lineResults: [] };
 
+	// Bounded top-k. The archive under searchDirs can hold thousands of files
+	// (catchup keeps a folder per day, forever); collecting every matching line
+	// before ranking grew the heap by hundreds of MB and killed a 200 MB SDK
+	// wrapper mid-turn (2026-11-01 canary). Keep only the best `maxResults`
+	// hits as we go, cap the files read, and cap filename matches.
+	const keep = Math.max(1, maxResults);
+	const best: { file: string; line: number; text: string; score: number; order: number }[] = [];
+	let worstIdx = -1;
+	const better = (a: typeof best[number], b: typeof best[number]) =>
+		a.score !== b.score ? a.score > b.score : a.order !== b.order ? a.order < b.order : a.line < b.line;
+	function offer(hit: typeof best[number]) {
+		if (best.length < keep) {
+			best.push(hit);
+			if (best.length === keep) worstIdx = best.reduce((w, h, i) => (better(best[w], h) ? i : w), 0);
+			return;
+		}
+		if (!better(hit, best[worstIdx])) return;
+		best[worstIdx] = hit;
+		worstIdx = best.reduce((w, h, i) => (better(best[w], h) ? i : w), 0);
+	}
+
+	let fileOrder = 0;
+	let filesRead = 0;
+	let budgetExhausted = false;
+
 	function searchFile(filePath: string, displayName: string) {
+		if (budgetExhausted) return;
 		const order = fileOrder++;
 		const nameLower = displayName.toLowerCase();
-		if (terms.some(t => nameLower.includes(t)) && !fileMatches.includes(displayName)) {
+		if (fileMatches.length < SEARCH_MAX_FILE_MATCHES && terms.some(t => nameLower.includes(t)) && !fileMatchSet.has(displayName)) {
+			fileMatchSet.add(displayName);
 			fileMatches.push(displayName);
 		}
+		if (filesRead >= SEARCH_MAX_FILES_READ) { budgetExhausted = true; return; }
+		filesRead++;
 		const content = readFileSafe(filePath);
 		if (!content) return;
-		const lines = content.split("\n");
-		for (let i = 0; i < lines.length; i++) {
-			const lower = lines[i].toLowerCase();
+		let lineNo = 0;
+		let from = 0;
+		while (from <= content.length) {
+			const nl = content.indexOf("\n", from);
+			const raw = nl === -1 ? content.slice(from) : content.slice(from, nl);
+			lineNo++;
+			const lower = raw.toLowerCase();
 			let score = 0;
 			for (const t of terms) if (lower.includes(t)) score++;
-			if (score > 0) {
-				hits.push({ file: displayName, line: i + 1, text: lines[i].trimEnd(), score, order });
-			}
+			if (score > 0) offer({ file: displayName, line: lineNo, text: raw.trimEnd(), score, order });
+			if (nl === -1) break;
+			from = nl + 1;
 		}
 	}
 
 	function searchDir(dir: string, prefix: string) {
+		if (budgetExhausted) return;
 		try {
 			const files = fs.readdirSync(dir).filter(f => f.endsWith(".md")).sort();
 			for (const f of files) {
+				if (budgetExhausted) return;
 				searchFile(path.join(dir, f), prefix ? `${prefix}/${f}` : f);
 			}
 		} catch {}
@@ -698,25 +731,30 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 	searchDir(config.dailyDir, "daily");
 	searchDir(config.notesDir, "notes");
 
-	// Search extra dirs configured via PI_SEARCH_DIRS
+	// Search extra dirs configured via PI_SEARCH_DIRS. Newest subdirectory first:
+	// catchup names subfolders by date, and recent days are the useful ones when
+	// the read budget runs out.
 	for (const dirName of config.searchDirs) {
+		if (budgetExhausted) break;
 		const dirPath = path.join(config.memoryDir, dirName);
 		try {
 			const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 			const mdFiles = entries.filter(e => e.isFile() && e.name.endsWith(".md"));
 			for (const f of mdFiles) {
+				if (budgetExhausted) break;
 				searchFile(path.join(dirPath, f.name), `${dirName}/${f.name}`);
 			}
-			const subDirs = entries.filter(e => e.isDirectory());
+			const subDirs = entries.filter(e => e.isDirectory()).sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
 			for (const sub of subDirs) {
+				if (budgetExhausted) break;
 				searchDir(path.join(dirPath, sub.name), `${dirName}/${sub.name}`);
 			}
 		} catch {}
 	}
 
 	// Rank: more matched keywords first, then file order, then line number.
-	hits.sort((a, b) => b.score - a.score || a.order - b.order || a.line - b.line);
-	const lineResults = hits.slice(0, maxResults).map(({ file, line, text }) => ({ file, line, text }));
+	best.sort((a, b) => b.score - a.score || a.order - b.order || a.line - b.line);
+	const lineResults = best.slice(0, maxResults).map(({ file, line, text }) => ({ file, line, text }));
 	return { fileMatches, lineResults };
 }
 
@@ -761,6 +799,11 @@ export interface AncestryResult {
 	chain: AncestorNode[];
 	truncatedAtDepth?: number;
 }
+
+/** searchMemory reads at most this many files per call; recent catchup days come first. */
+export const SEARCH_MAX_FILES_READ = 400;
+/** searchMemory returns at most this many filename matches. */
+export const SEARCH_MAX_FILE_MATCHES = 50;
 
 export const ANCESTRY_MAX_DEPTH = 64;
 
