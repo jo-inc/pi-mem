@@ -76,3 +76,59 @@ describe("system-mode before_agent_start", () => {
 		assert.ok(event.systemPromptOptions.sections.pi_mem_memory.includes("Northwind"));
 	});
 });
+
+describe("system-mode per-turn retrieval", () => {
+	it("injects a condensed retrieval message when memory files hold something relevant, and nothing when they do not", async () => {
+		// System mode keeps MEMORY.md in the cached system prompt AND retrieves
+		// per turn from other files. The 'fully silent' change had left the
+		// retrieval unwired. recallConfig is read at module load, so load a
+		// fresh instance with recall on; the conversation lookup targets a port
+		// nothing listens on and must fail without hiding the file hits.
+		const me = process.env.PI_MEMORY_DIR!;
+		fs.mkdirSync(path.join(me, "notes"), { recursive: true });
+		fs.writeFileSync(path.join(me, "notes", "food.md"), "- Allergic to shellfish, especially shrimp.\n");
+		const saved = { ...process.env };
+		// Isolate from the developer's shell: any PI_* override (e.g. PI_DAILY_DIR)
+		// would point the search at real memory files.
+		for (const k of Object.keys(process.env)) if (k.startsWith("PI_") && k !== "PI_MEMORY_DIR") delete process.env[k];
+		process.env.PI_MEMORY_RECALL = "1";
+		process.env.PI_SPRITE_URL = "http://127.0.0.1:9";
+		process.env.PI_MEMORY_RECALL_TIMEOUT_MS = "200";
+		const local: Record<string, Function[]> = {};
+		const fakePi: any = {
+			on: (name: string, fn: Function) => { (local[name] ??= []).push(fn); },
+			registerTool: () => {}, registerCommand: () => {}, registerShortcut: () => {},
+			registerMessageRenderer: () => {}, registerFlag: () => {}, getFlag: () => undefined,
+			sendMessage: () => {}, sendUserMessage: () => {}, setStatus: () => {},
+		};
+		try {
+			const mod = await import(`../index.ts?recall=${Date.now()}`);
+			mod.default(fakePi);
+			const h = local["context"];
+			assert.ok(h && h.length === 1, "context handler registered");
+			const relevant = await h[0]({ messages: [{ role: "user", content: "book me a shrimp dinner", timestamp: 1 }] }, {});
+			assert.ok(relevant && Array.isArray(relevant.messages), "a retrieval message was injected");
+			const injected = String(relevant.messages.at(-1).content);
+			assert.ok(injected.includes("shellfish"), "retrieved line present");
+			assert.ok(!injected.includes("Northwind Labs"), "MEMORY.md is in the system prompt already; not repeated per turn");
+
+			const irrelevant = await h[0]({ messages: [{ role: "user", content: "what time is it", timestamp: 2 }] }, {});
+			assert.strictEqual(irrelevant, undefined, "no daily log and nothing retrieved: nothing injected");
+
+			// With a daily log for today, the per-turn message carries it (tight, 2K cap)
+			// even when retrieval finds nothing.
+			const { todayStr, dailyPath, buildConfig } = await import("../lib.ts");
+			const cfg = buildConfig(process.env as any);
+			fs.mkdirSync(cfg.dailyDir, { recursive: true });
+			fs.writeFileSync(dailyPath(cfg.dailyDir, todayStr(cfg.timezone)), "- Booked the dentist for Thursday.\n");
+			const withDaily = await h[0]({ messages: [{ role: "user", content: "what time is it", timestamp: 3 }] }, {});
+			assert.ok(withDaily && Array.isArray(withDaily.messages), "daily block injected");
+			const dailyInjected = String(withDaily.messages.at(-1).content);
+			assert.ok(dailyInjected.includes("dentist"), "today's log present");
+			assert.ok(!dailyInjected.includes("Northwind Labs"), "MEMORY.md not repeated");
+		} finally {
+			for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+			Object.assign(process.env, saved);
+		}
+	});
+});
