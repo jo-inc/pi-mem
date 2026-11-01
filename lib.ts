@@ -628,6 +628,16 @@ const SEARCH_STOPWORDS = new Set([
 	"do", "does", "did", "we", "i", "you", "it", "its", "this", "that", "these",
 	"those", "as", "by", "from", "into", "about", "can", "could", "should",
 	"would", "will", "has", "have", "had", "our", "my", "your",
+	// Function words and request-speak that carry no memory signal. Left in,
+	// they substring-matched across every daily log and buried real hits
+	// (2026-11-01: "no", "only", "which", "want", "name", "tools", "memory").
+	"no", "not", "yes", "only", "just", "which", "who", "whom", "whose", "want",
+	"wanted", "need", "needed", "like", "liked", "name", "names", "couple",
+	"few", "some", "any", "all", "one", "two", "me", "him", "her", "them", "us",
+	"so", "if", "then", "than", "but", "also", "very", "more", "most", "much",
+	"many", "there", "here", "now", "please", "tell", "say", "know", "think",
+	"remember", "recall", "memory", "tools", "tool", "use", "using", "without",
+	"quick", "check", "answer", "question", "asked", "ask", "exactly",
 ]);
 
 function stemToken(tok: string): string {
@@ -666,28 +676,18 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 	// (e.g. a query made only of stopwords or punctuation).
 	const terms = tokens.length > 0 ? tokens : [query.toLowerCase().trim()].filter(Boolean);
 	if (terms.length === 0) return { fileMatches, lineResults: [] };
+	// Whole-word, stem-tolerant match: "show" matches "show"/"shows"/"showed",
+	// never "no" in "know" or "name" in "filename".
+	const matchers = terms.map(t => new RegExp(`(^|[^a-z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[a-z]{0,3}(?=$|[^a-z0-9])`, "i"));
 
-	// Bounded top-k. The archive under searchDirs can hold thousands of files
-	// (catchup keeps a folder per day, forever); collecting every matching line
-	// before ranking grew the heap by hundreds of MB and killed a 200 MB SDK
-	// wrapper mid-turn (2026-11-01 canary). Keep only the best `maxResults`
-	// hits as we go, cap the files read, and cap filename matches.
-	const keep = Math.max(1, maxResults);
-	const best: { file: string; line: number; text: string; score: number; order: number }[] = [];
-	let worstIdx = -1;
-	const better = (a: typeof best[number], b: typeof best[number]) =>
-		a.score !== b.score ? a.score > b.score : a.order !== b.order ? a.order < b.order : a.line < b.line;
-	function offer(hit: typeof best[number]) {
-		if (best.length < keep) {
-			best.push(hit);
-			if (best.length === keep) worstIdx = best.reduce((w, h, i) => (better(best[w], h) ? i : w), 0);
-			return;
-		}
-		if (!better(hit, best[worstIdx])) return;
-		best[worstIdx] = hit;
-		worstIdx = best.reduce((w, h, i) => (better(best[w], h) ? i : w), 0);
-	}
-
+	// Two passes over the same bounded file budget: count how many lines each
+	// term matches across the archive, then score lines by the rarity of the
+	// terms they hit. A line matching one rare term ("crime") outranks a line
+	// matching two common ones ("want", "show"). Lines from a file whose NAME
+	// matches get a boost: the person titled it for exactly this lookup.
+	type Hit = { file: string; line: number; text: string; mask: number; order: number; nameHit: boolean };
+	const candidates: Hit[] = [];
+	const termLineCounts = new Array<number>(terms.length).fill(0);
 	let fileOrder = 0;
 	let filesRead = 0;
 	let budgetExhausted = false;
@@ -695,8 +695,9 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 	function searchFile(filePath: string, displayName: string) {
 		if (budgetExhausted) return;
 		const order = fileOrder++;
-		const nameLower = displayName.toLowerCase();
-		if (fileMatches.length < SEARCH_MAX_FILE_MATCHES && terms.some(t => nameLower.includes(t)) && !fileMatchSet.has(displayName)) {
+		const nameLower = displayName.toLowerCase().replace(/[-_./]+/g, " ");
+		const nameHit = matchers.some(m => m.test(nameLower));
+		if (nameHit && fileMatches.length < SEARCH_MAX_FILE_MATCHES && !fileMatchSet.has(displayName)) {
 			fileMatchSet.add(displayName);
 			fileMatches.push(displayName);
 		}
@@ -710,10 +711,16 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 			const nl = content.indexOf("\n", from);
 			const raw = nl === -1 ? content.slice(from) : content.slice(from, nl);
 			lineNo++;
-			const lower = raw.toLowerCase();
-			let score = 0;
-			for (const t of terms) if (lower.includes(t)) score++;
-			if (score > 0) offer({ file: displayName, line: lineNo, text: raw.trimEnd(), score, order });
+			let mask = 0;
+			for (let i = 0; i < matchers.length; i++) {
+				if (matchers[i].test(raw)) { mask |= 1 << i; termLineCounts[i]++; }
+			}
+			// A file whose NAME matched is about the query; keep its first lines
+			// of content as candidates even when a line repeats no query word, so
+			// the model sees what the note says, not just its heading.
+			if ((mask !== 0 || (nameHit && lineNo <= SEARCH_NAME_HIT_LEAD_LINES && raw.trim() !== "")) && candidates.length < SEARCH_MAX_CANDIDATE_LINES) {
+				candidates.push({ file: displayName, line: lineNo, text: raw.trimEnd(), mask, order, nameHit });
+			}
 			if (nl === -1) break;
 			from = nl + 1;
 		}
@@ -755,9 +762,21 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 		} catch {}
 	}
 
-	// Rank: more matched keywords first, then file order, then line number.
-	best.sort((a, b) => b.score - a.score || a.order - b.order || a.line - b.line);
-	const lineResults = best.slice(0, maxResults).map(({ file, line, text }) => ({ file, line, text }));
+	// Inverse-frequency weight per term; a term that matched everywhere is
+	// worth little, one that matched a handful of lines is worth a lot.
+	const total = Math.max(1, candidates.length);
+	const weights = termLineCounts.map(c => Math.log1p(total / Math.max(1, c)));
+	// Lines of a name-matched file start at the value of one rare term.
+	const nameFloor = Math.max(...weights, 0);
+	const scored = candidates.map(h => {
+		let score = 0;
+		for (let i = 0; i < weights.length; i++) if (h.mask & (1 << i)) score += weights[i];
+		if (h.nameHit) score = score * 2 + nameFloor;
+		return { ...h, score };
+	});
+	// Rank: weighted score, then file order, then line number.
+	scored.sort((a, b) => b.score - a.score || a.order - b.order || a.line - b.line);
+	const lineResults = scored.slice(0, maxResults).map(({ file, line, text }) => ({ file, line, text }));
 	return { fileMatches, lineResults };
 }
 
@@ -807,6 +826,10 @@ export interface AncestryResult {
 export const SEARCH_MAX_FILES_READ = 400;
 /** searchMemory returns at most this many filename matches. */
 export const SEARCH_MAX_FILE_MATCHES = 50;
+/** searchMemory keeps at most this many matching lines before ranking; bounds memory on huge archives. */
+export const SEARCH_MAX_CANDIDATE_LINES = 20000;
+/** When a file's name matches the query, its first N non-empty lines are kept as candidates too. */
+export const SEARCH_NAME_HIT_LEAD_LINES = 12;
 
 export const ANCESTRY_MAX_DEPTH = 64;
 
