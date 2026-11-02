@@ -129,3 +129,49 @@ describe("system-mode per-turn injection", () => {
 		}
 	});
 });
+
+describe("system-lean mode", () => {
+	it("publishes the cached memory section with a daily-log pointer, and injects nothing per turn", async () => {
+		const me = makeTempDir();
+		fs.mkdirSync(me, { recursive: true });
+		fs.writeFileSync(path.join(me, "MEMORY.md"), "# Long-term memory\n- Works at Northwind Labs.\n");
+		fs.writeFileSync(path.join(me, ".pi-mem.json"), JSON.stringify({ contextMode: "system-lean", autocommit: false }));
+		const saved = { ...process.env };
+		for (const k of Object.keys(process.env)) if (k.startsWith("PI_")) delete process.env[k];
+		process.env.PI_MEMORY_DIR = me;
+		const local: Record<string, Function[]> = {};
+		const fakePi: any = {
+			on: (name: string, fn: Function) => { (local[name] ??= []).push(fn); },
+			registerTool: () => {}, registerCommand: () => {}, registerShortcut: () => {},
+			registerMessageRenderer: () => {}, registerFlag: () => {}, getFlag: () => undefined,
+			sendMessage: () => {}, sendUserMessage: () => {}, setStatus: () => {},
+		};
+		try {
+			const mod = await import(`../index.ts?lean=${Date.now()}`);
+			mod.default(fakePi);
+
+			// Cached system section is present and names the daily-log tool.
+			const section = (globalThis as any).__piMemSystemSection as string;
+			assert.ok(section.includes("Northwind Labs"), "durable memory in the cached section");
+			assert.ok(section.includes("memory_read(target='daily')"), "daily-log pointer present");
+
+			// before_agent_start still populates the prompt section.
+			const ev: any = { type: "before_agent_start", systemPromptOptions: {} };
+			local["before_agent_start"][0](ev, {});
+			assert.ok(ev.systemPromptOptions.sections.pi_mem_memory.includes("Northwind Labs"));
+
+			// Per turn: nothing injected, even with a daily log on disk.
+			const { todayStr, dailyPath, buildConfig } = await import("../lib.ts");
+			const cfg = buildConfig(process.env as any);
+			fs.mkdirSync(cfg.dailyDir, { recursive: true });
+			fs.writeFileSync(dailyPath(cfg.dailyDir, todayStr(cfg.timezone)), "- Booked the dentist.\n");
+			const h = local["context"][0];
+			const out = await h({ messages: [{ role: "user", content: "what did I do today", timestamp: 1 }] }, {});
+			assert.strictEqual(out, undefined, "system-lean injects nothing per turn");
+		} finally {
+			for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+			Object.assign(process.env, saved);
+			cleanup(me);
+		}
+	});
+});

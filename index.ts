@@ -401,7 +401,7 @@ export default function (pi: ExtensionAPI) {
 	Object.defineProperty(globalThis, "__piMemSystemSection", {
 		configurable: true,
 		enumerable: false,
-		get: () => (config.contextMode === "system" ? (buildSystemGuidelines().trim() || undefined) : undefined),
+		get: () => (config.contextMode === "system" || config.contextMode === "system-lean" ? (buildSystemGuidelines().trim() || undefined) : undefined),
 	});
 
 	pi.on("before_agent_start", (event) => {
@@ -411,7 +411,7 @@ export default function (pi: ExtensionAPI) {
 		// nothing on every turn. Always create it before touching it.
 		const opts: any = event.systemPromptOptions;
 		if (!opts.sections || typeof opts.sections !== "object") opts.sections = {};
-		if (config.contextMode !== "system") {
+		if (config.contextMode !== "system" && config.contextMode !== "system-lean") {
 			delete opts.sections.pi_mem_memory;
 			return;
 		}
@@ -493,6 +493,11 @@ export default function (pi: ExtensionAPI) {
 			);
 		}
 		parts.push(RECALL_DIRECTIVE);
+		if (config.contextMode === "system-lean") {
+			parts.push(
+				"Daily log: today's and yesterday's activity is not injected automatically. Read it on demand with memory_read(target='daily') (pass date='YYYY-MM-DD' for another day) before answering about what happened recently.",
+			);
+		}
 		return parts.join("\n\n");
 	}
 
@@ -501,6 +506,11 @@ export default function (pi: ExtensionAPI) {
 	// on disk and makes them available through the memory tools on demand.
 	pi.on("context", async (event) => {
 		if (config.contextMode === "off") return;
+
+		// system-lean: everything lives in the cached system prompt (durable memory +
+		// directive). Nothing is injected per turn at all; today's and yesterday's
+		// daily logs are reached on demand through memory_read(target='daily').
+		if (config.contextMode === "system-lean") return;
 
 		// System mode keeps durable memory + the directive in a cached system-prompt
 		// section (before_agent_start, below), so the long prefix stays cacheable.
