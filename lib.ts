@@ -663,9 +663,17 @@ function tokenizeQuery(query: string): string[] {
 	for (const t of kept) {
 		const s = stemToken(t);
 		if (!seen.has(s)) { seen.add(s); out.push(s); }
+		if (out.length >= SEARCH_MAX_QUERY_TERMS) break;
 	}
 	return out;
 }
+
+// Upper bound on distinct query terms. Each term is one regex run against
+// every line of up to SEARCH_MAX_FILES_READ files on the main thread, so a
+// query the size of a prompt (a 233k-character cron message was seen live on
+// 2026-11-01) blocked the event loop for over 40 minutes. The per-term match
+// mask is also a 32-bit integer, so term 33 would alias onto term 1.
+export const SEARCH_MAX_QUERY_TERMS = 32;
 
 // Words that never mean anything on their own, even in a bare query: a query
 // made only of these carries no signal and retrieves nothing.

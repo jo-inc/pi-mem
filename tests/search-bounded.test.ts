@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { searchMemory, ensureDirs } from "../lib.ts";
+import { searchMemory, ensureDirs, SEARCH_MAX_QUERY_TERMS } from "../lib.ts";
 import { makeTempDir, cleanup, makeConfig } from "./helpers.ts";
 
 let tmpDir: string;
@@ -44,5 +44,25 @@ describe("searchMemory stays bounded on a large catchup archive", () => {
 		// 800k matching lines existed; the search must not have materialised them.
 		assert.ok(grewBytes < 40 * 1024 * 1024, `heap grew ${Math.round(grewBytes / 1024 / 1024)}MB during search`);
 		assert.ok(result.fileMatches.length <= 50, `fileMatches should be capped, got ${result.fileMatches.length}`);
+	});
+
+	it("bounds the term count so a prompt-sized query cannot pin the main thread", () => {
+		const config = makeConfig(tmpDir, { searchDirs: ["catchup"] });
+		ensureDirs(config);
+		const root = path.join(config.memoryDir, "catchup", "2026-11-01");
+		fs.mkdirSync(root, { recursive: true });
+		const body = Array.from({ length: 400 }, (_, i) => `note line ${i} about project alpha and the budget review\n`).join("");
+		for (let f = 0; f < 400; f++) fs.writeFileSync(path.join(root, `${String(f).padStart(4, "0")}_chat_x-${f}.md`), body);
+
+		// ~20k distinct words, like a cron prompt carrying a day of catchup content.
+		const query = Array.from({ length: 20000 }, (_, i) => `word${i}xq`).join(" ") + " budget";
+		const started = Date.now();
+		const result = searchMemory(config, query, 8);
+		const elapsedMs = Date.now() - started;
+		assert.ok(elapsedMs < 4000, `search took ${elapsedMs}ms`);
+		assert.ok(SEARCH_MAX_QUERY_TERMS <= 32, "term mask is a 32-bit integer");
+		// The query is truncated after SEARCH_MAX_QUERY_TERMS tokens, so the
+		// trailing real word is not searched; that is the accepted trade-off.
+		assert.equal(result.lineResults.length, 0);
 	});
 });
