@@ -1237,6 +1237,7 @@ export function condenseDailyLogs(
 
 export const RECALL_DIRECTIVE = [
 	"Memory: before answering anything about the user's life, people, schedule, health, preferences, plans, or past decisions, check memory_search (and memory_read for the full file) if the block above is empty or incomplete.",
+	"To recall something from an earlier conversation, use a session/conversation search tool if one is available (e.g. search_sessions) rather than guessing.",
 	"Never ask the user for a detail you may already have stored — look first.",
 	"If the user asks about something and memory has no record of it, say plainly that you have no record of it (then check other sources if available); never invent specifics.",
 	"Use memory_write for explicit remember requests and durable preferences or decisions.",

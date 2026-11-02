@@ -77,13 +77,11 @@ describe("system-mode before_agent_start", () => {
 	});
 });
 
-describe("system-mode per-turn retrieval", () => {
-	it("injects a condensed retrieval message when memory files hold something relevant, and nothing when they do not", async () => {
-		// System mode keeps MEMORY.md in the cached system prompt AND retrieves
-		// per turn from other files. The 'fully silent' change had left the
-		// retrieval unwired. recallConfig is read at module load, so load a
-		// fresh instance with recall on; the conversation lookup targets a port
-		// nothing listens on and must fail without hiding the file hits.
+describe("system-mode per-turn injection", () => {
+	it("injects only daily logs per turn, never a retrieval block from other files/conversations/facts", async () => {
+		// System mode keeps MEMORY.md in the cached system prompt. Per turn it adds
+		// ONLY today's/yesterday's daily logs; the old file/conversation/fact
+		// retrieval block was removed because it read as noise on the smarter models.
 		const me = process.env.PI_MEMORY_DIR!;
 		fs.mkdirSync(path.join(me, "notes"), { recursive: true });
 		fs.writeFileSync(path.join(me, "notes", "food.md"), "- Allergic to shellfish, especially shrimp.\n");
@@ -106,17 +104,15 @@ describe("system-mode per-turn retrieval", () => {
 			mod.default(fakePi);
 			const h = local["context"];
 			assert.ok(h && h.length === 1, "context handler registered");
+			// A query that would once have retrieved the shellfish line now injects
+			// nothing: no daily log, and retrieval no longer runs per turn.
 			const relevant = await h[0]({ messages: [{ role: "user", content: "book me a shrimp dinner", timestamp: 1 }] }, {});
-			assert.ok(relevant && Array.isArray(relevant.messages), "a retrieval message was injected");
-			const injected = String(relevant.messages.at(-1).content);
-			assert.ok(injected.includes("shellfish"), "retrieved line present");
-			assert.ok(!injected.includes("Northwind Labs"), "MEMORY.md is in the system prompt already; not repeated per turn");
+			assert.strictEqual(relevant, undefined, "no retrieval block injected and no daily log: nothing injected");
 
 			const irrelevant = await h[0]({ messages: [{ role: "user", content: "what time is it", timestamp: 2 }] }, {});
-			assert.strictEqual(irrelevant, undefined, "no daily log and nothing retrieved: nothing injected");
+			assert.strictEqual(irrelevant, undefined, "no daily log: nothing injected");
 
-			// With a daily log for today, the per-turn message carries it (tight, 2K cap)
-			// even when retrieval finds nothing.
+			// With a daily log for today, the per-turn message carries it (tight, 2K cap).
 			const { todayStr, dailyPath, buildConfig } = await import("../lib.ts");
 			const cfg = buildConfig(process.env as any);
 			fs.mkdirSync(cfg.dailyDir, { recursive: true });
@@ -126,6 +122,7 @@ describe("system-mode per-turn retrieval", () => {
 			const dailyInjected = String(withDaily.messages.at(-1).content);
 			assert.ok(dailyInjected.includes("dentist"), "today's log present");
 			assert.ok(!dailyInjected.includes("Northwind Labs"), "MEMORY.md not repeated");
+			assert.ok(!dailyInjected.includes("shellfish"), "no file retrieval injected per turn");
 		} finally {
 			for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
 			Object.assign(process.env, saved);

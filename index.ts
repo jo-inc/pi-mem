@@ -477,29 +477,6 @@ export default function (pi: ExtensionAPI) {
 		return block ? `${block}\n\n${RECALL_DIRECTIVE}` : RECALL_DIRECTIVE;
 	}
 
-	// System mode \u2014 per turn: ONLY query-relevant recall hits, silent (no
-	// directive, no durable-memory dump). Returns "" when nothing relevant was
-	// found, so the context hook adds nothing that turn. Durable memory and the
-	// directive instead live in a cached system-prompt section (before_agent_start).
-	async function buildSystemTurnRecall(messages: any[]): Promise<string> {
-		if (!recallConfig.enabled) return "";
-		const query = latestUserText(messages);
-		if (!query) return "";
-		// Each source degrades on its own: an unreachable conversation index must
-		// not hide file hits (and vice versa).
-		const [conversations, facts] = await Promise.all([
-			recallConversations(query).catch(() => [] as Awaited<ReturnType<typeof recallConversations>>),
-			recallFacts(query).catch(() => [] as Awaited<ReturnType<typeof recallFacts>>),
-		]);
-		let hits: ReturnType<typeof searchMemory>["lineResults"] = [];
-		try {
-			// Durable MEMORY.md is already in the system prompt in this mode, so only
-			// surface retrieved lines from OTHER files plus conversation/fact hits.
-			hits = searchMemory(config, query, recallConfig.maxFileLines, { excludeContextFiles: true }).lineResults;
-		} catch {}
-		return formatRecallBlock({ fullMemory: undefined, fileLines: hits, conversations, facts });
-	}
-
 	// System mode \u2014 once per run: durable MEMORY.md plus the directive, placed in a
 	// cached system-prompt guidelines section. Stable across turns, so it does not
 	// re-trigger acknowledgements and does not break prompt caching.
@@ -527,25 +504,25 @@ export default function (pi: ExtensionAPI) {
 
 		// System mode keeps durable memory + the directive in a cached system-prompt
 		// section (before_agent_start, below), so the long prefix stays cacheable.
-		// Per turn it adds only a condensed retrieval block from OTHER sources
-		// (other files, past conversations, facts), and nothing at all when there
-		// is nothing relevant.
+		// Per turn it adds ONLY today's and yesterday's daily logs. It no longer
+		// injects a retrieval block from other files/conversations/facts: on the
+		// smarter models that injection read as noise on turns that did not need it.
+		// The model searches prior memory and conversations with its tools instead,
+		// as the cached directive tells it to.
 		if (config.contextMode === "system") {
-			const retrieved = await buildSystemTurnRecall(event.messages);
 			const today = todayStr(config.timezone);
 			const yesterday = yesterdayStr(config.timezone);
 			const daily = condenseDailyLogs(
 				{ today, yesterday },
 				{ [today]: readFileSafe(dailyPath(config.dailyDir, today)) ?? undefined, [yesterday]: readFileSafe(dailyPath(config.dailyDir, yesterday)) ?? undefined },
 			);
-			const block = [retrieved, daily].filter(Boolean).join("\n\n");
-			if (!block) return;
+			if (!daily) return;
 			return {
 				messages: [
 					...event.messages,
 					{
 						role: "user" as const,
-						content: `<pi-mem-injected>\n${block}\n</pi-mem-injected>`,
+						content: `<pi-mem-injected>\n${daily}\n</pi-mem-injected>`,
 						timestamp: Date.now(),
 					},
 				],
