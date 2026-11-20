@@ -82,3 +82,25 @@ describe("dailyPath", () => {
 		assert.ok(result.endsWith("2026-01-01.md"));
 	});
 });
+
+describe("yesterdayStr in far-from-UTC zones (regression)", () => {
+	it("is the day before today at UTC+14", () => {
+		// 11:00 UTC is 01:00 the next day in Kiritimati. The old noon-UTC anchor
+		// converted back to the same day as today.
+		const now = new Date("2026-11-19T11:00:00Z");
+		assert.strictEqual(todayStr("Pacific/Kiritimati", now), "2026-11-20");
+		assert.strictEqual(yesterdayStr("Pacific/Kiritimati", now), "2026-11-19");
+	});
+
+	it("crosses a month end at UTC+14", () => {
+		const now = new Date("2026-02-28T11:00:00Z");
+		assert.strictEqual(todayStr("Pacific/Kiritimati", now), "2026-03-01");
+		assert.strictEqual(yesterdayStr("Pacific/Kiritimati", now), "2026-02-28");
+	});
+
+	it("is the day before today at UTC-11", () => {
+		const now = new Date("2026-11-19T05:00:00Z");
+		assert.strictEqual(todayStr("Pacific/Pago_Pago", now), "2026-11-18");
+		assert.strictEqual(yesterdayStr("Pacific/Pago_Pago", now), "2026-11-17");
+	});
+});

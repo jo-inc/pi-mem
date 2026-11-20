@@ -63,6 +63,7 @@ import {
 	filterConversationRows,
 	formatRecallBlock,
 	RECALL_DIRECTIVE,
+	appendStampedEntry,
 } from "./lib.ts";
 
 const config = buildConfig();
@@ -520,8 +521,9 @@ export default function (pi: ExtensionAPI) {
 		// The model searches prior memory and conversations with its tools instead,
 		// as the cached directive tells it to.
 		if (config.contextMode === "system") {
-			const today = todayStr(config.timezone);
-			const yesterday = yesterdayStr(config.timezone);
+			const now = new Date();
+			const today = todayStr(config.timezone, now);
+			const yesterday = yesterdayStr(config.timezone, now);
 			const daily = condenseDailyLogs(
 				{ today, yesterday },
 				{ [today]: readFileSafe(dailyPath(config.dailyDir, today)) ?? undefined, [yesterday]: readFileSafe(dailyPath(config.dailyDir, yesterday)) ?? undefined },
@@ -604,7 +606,6 @@ export default function (pi: ExtensionAPI) {
 				}
 				const safe = path.basename(filename);
 				const filePath = path.join(config.notesDir, safe);
-				const existing = readFileSafe(filePath) ?? "";
 
 				if (mode === "overwrite") {
 					const stamped = `<!-- last updated: ${ts} [${sid}] -->\n${content}`;
@@ -616,9 +617,8 @@ export default function (pi: ExtensionAPI) {
 					};
 				}
 
-				const separator = existing.trim() ? "\n\n" : "";
 				const stamped = `<!-- ${ts} [${sid}] -->\n${content}`;
-				fs.writeFileSync(filePath, existing + separator + stamped, "utf-8");
+				appendStampedEntry(filePath, stamped);
 				gitCommit(`note: ${safe}`);
 				return {
 					content: [{ type: "text", text: `Appended to notes/${safe}` }],
@@ -629,11 +629,8 @@ export default function (pi: ExtensionAPI) {
 			if (target === "daily") {
 				const date = todayStr(config.timezone);
 				const filePath = dailyPath(config.dailyDir, date);
-				const existing = readFileSafe(filePath) ?? "";
-
-				const separator = existing.trim() ? "\n\n" : "";
 				const stamped = `<!-- ${ts} [${sid}] -->\n${content}`;
-				fs.writeFileSync(filePath, existing + separator + stamped, "utf-8");
+				appendStampedEntry(filePath, stamped);
 				gitCommit(`daily: ${date}`);
 				return {
 					content: [{ type: "text", text: `Appended to daily/${date}.md` }],
@@ -642,8 +639,6 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// long_term
-			const existing = readFileSafe(config.memoryFile) ?? "";
-
 			if (mode === "overwrite") {
 				const stamped = `<!-- last updated: ${ts} [${sid}] -->\n${content}`;
 				fs.writeFileSync(config.memoryFile, stamped, "utf-8");
@@ -654,9 +649,8 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			const separator = existing.trim() ? "\n\n" : "";
 			const stamped = `<!-- ${ts} [${sid}] -->\n${content}`;
-			fs.writeFileSync(config.memoryFile, existing + separator + stamped, "utf-8");
+			appendStampedEntry(config.memoryFile, stamped);
 			gitCommit("memory: append");
 			return {
 				content: [{ type: "text", text: `Appended to MEMORY.md` }],
