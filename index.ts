@@ -521,8 +521,9 @@ export default function (pi: ExtensionAPI) {
 		// The model searches prior memory and conversations with its tools instead,
 		// as the cached directive tells it to.
 		if (config.contextMode === "system") {
-			const today = todayStr(config.timezone);
-			const yesterday = yesterdayStr(config.timezone);
+			const now = new Date();
+			const today = todayStr(config.timezone, now);
+			const yesterday = yesterdayStr(config.timezone, now);
 			const daily = condenseDailyLogs(
 				{ today, yesterday },
 				{ [today]: readFileSafe(dailyPath(config.dailyDir, today)) ?? undefined, [yesterday]: readFileSafe(dailyPath(config.dailyDir, yesterday)) ?? undefined },

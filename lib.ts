@@ -478,8 +478,9 @@ export function buildMemoryContext(config: MemoryConfig): string {
 		sections.push(`## MEMORY.md (long-term)\n\n${longTerm.trim()}`);
 	}
 
-	const today = todayStr(config.timezone);
-	const yesterday = yesterdayStr(config.timezone);
+	const now = new Date();
+	const today = todayStr(config.timezone, now);
+	const yesterday = yesterdayStr(config.timezone, now);
 
 	const todayContent = readFileSafe(dailyPath(config.dailyDir, today));
 	if (todayContent?.trim()) {
