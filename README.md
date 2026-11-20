@@ -50,6 +50,11 @@ Other modes:
 - `bootstrap` — a per-turn recall block including `MEMORY.md` itself, injected as a user message every turn (no cached section)
 - `full` — inject context files, `MEMORY.md`, today's and yesterday's logs, and catchup indexes every turn
 - `off` — inject nothing
+- `system-delta`: requires Pi 1.5.2 or a later 1.x release. On Pi 0.81.x, selecting this mode emits a warning and selects `system` instead. Existing modes still support Pi 0.81.1. This mode uses the turn-end hook to save external edits before the next model call. It is a cache-safe variant of `system`. It pins `MEMORY.md` and the configured `contextFiles` (for example `SOUL.md`) in the system-prompt section for the life of a session, so the section never changes mid-session. Edits to a context file apply from the next session; each file is cut at 12,000 characters by default with a pointer to `memory_read`. Today's and yesterday's daily logs arrive once as a saved message at session start (default 4,000-character cap, newest entries kept). After that, pi-mem checks the files at each prompt and after each tool turn, and only when a file changed size or modification time. Observed changes to `MEMORY.md` or the daily logs arrive as saved diff messages (default 4,000-character cap each). The writer skips its own appends. For a successful, exact Pi `edit`, it skips the matching amendment or deletion and still sees independent changes. Other sessions identify a changed stamped entry by its header. A deletion includes a short preview. Older session records can show only a line count. Unverified edits, including shell commands, can still produce an update in the editing session. Nothing is injected as an unsaved per-call message, so the prompt prefix stays the same from call to call. The baseline for the diffs is saved in each message's `details`, so resume, fork and `/tree` rebuild it from the branch. After a compaction, pi-mem sends a fresh snapshot.
+
+When a daily log exceeds the size limit, `system` and `system-delta` keep its heading and the newest text that fits. The read hint appears before the clipped text.
+
+The companion command `node mem-append.mjs <daily|long_term> <session-id>` reads an entry from standard input. It uses the same configuration, UTC header, session ID, and append operation as Pi's `memory_write`. The configured time zone selects the daily file. Both writers preserve line breaks inside the entry and remove trailing line breaks.
 
 `SCRATCHPAD.md`, files in `notes/`, and older daily logs are always available on demand through the memory tools.
 
@@ -90,10 +95,13 @@ Environment variables override `.pi-mem.json` values when set.
 |---------|---------|-------------|
 | `PI_MEMORY_DIR` | `~/.pi/agent/memory/` | Root directory for all memory files |
 | `PI_DAILY_DIR` | `$PI_MEMORY_DIR/daily/` | Directory for daily logs |
-| `PI_CONTEXT_FILES` | *(empty)* | Comma-separated extra files used by `full` context mode |
+| `PI_MEMORY_MAX_CHARS` | 12000 | `memoryMaxChars` in .pi-mem.json. Limits the MEMORY.md body in system, system-lean and system-delta. Clipping keeps the beginning and adds a read hint. |
+| `PI_DELTA_MAX_CHARS` | 4000 | `deltaMaxChars`. Limits each system-delta snapshot or update. The legacy name is `dailyMaxChars` (`PI_DAILY_MAX_CHARS`). Environment values take priority. Within each source, the delta name takes priority. |
+| `PI_CONTEXT_FILE_MAX_CHARS` | 12000 | `contextFileMaxChars`. Limits each pinned context file body in system-delta. Use positive whole numbers for all three limits. |
+| `PI_CONTEXT_FILES` | *(empty)* | Comma-separated extra files (relative to `PI_MEMORY_DIR`). `full` mode injects them every turn; `system-delta` pins them in the system-prompt section once per session |
 | `PI_SEARCH_DIRS` | *(empty)* | Comma-separated list of subdirectories (relative to `PI_MEMORY_DIR`) to include in `memory_search`. Searched recursively one level deep. (e.g. `catchup,projects`) |
 | `PI_AUTOCOMMIT` | `false` | When `1` or `true`, auto-commit to git after every write |
-| `PI_MEMORY_CONTEXT_MODE` | `system` | Context mode: `system`, `bootstrap`, `full`, or `off` |
+| `PI_MEMORY_CONTEXT_MODE` | `system` | Context mode: `system`, `system-lean`, `system-delta`, `bootstrap`, `full`, or `off` |
 | `PI_ANCESTRY` | `false` | When `1` or `true`, registers the `session_ancestry` tool and `/ancestry` command. Off by default. |
 | `PI_TIMEZONE` | `TZ`, then `UTC` | IANA timezone used for daily log filenames and today/yesterday context windows. Invalid values fall back to `UTC`. |
 

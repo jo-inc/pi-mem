@@ -24,6 +24,9 @@ export function makeConfig(baseDir: string, overrides: Partial<MemoryConfig> = {
 		autocommit: false,
 		timezone: "UTC",
 		contextMode: "bootstrap",
+		memoryMaxChars: 12000,
+		deltaMaxChars: 4000,
+		contextFileMaxChars: 12000,
 		ancestry: false,
 		...overrides,
 	};
