@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 /**
  * Pure logic extracted from the memory extension for testability.
  * No pi API dependencies — just file I/O and string manipulation.
@@ -162,9 +163,11 @@ export function yesterdayStr(timeZone = "UTC", now = new Date()): string {
 
 /** Get a date string N days ago from today. */
 export function daysAgoStr(n: number, timeZone = "UTC", now = new Date()): string {
+	// Subtract days from the local calendar date itself. Converting a noon-UTC
+	// anchor back into the zone moved it to the next day in zones at UTC+12 or more.
 	const parts = localDateParts(now, timeZone);
-	const shifted = new Date(Date.UTC(parts.year, parts.month - 1, parts.day - n, 12, 0, 0, 0));
-	return formatDateParts(localDateParts(shifted, timeZone));
+	const shifted = new Date(Date.UTC(parts.year, parts.month - 1, parts.day - n));
+	return formatDateParts({ year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate() });
 }
 
 export function nowTimestamp(): string {
@@ -352,6 +355,34 @@ export function ensureDirs(config: MemoryConfig): void {
 	fs.mkdirSync(config.memoryDir, { recursive: true });
 	fs.mkdirSync(config.dailyDir, { recursive: true });
 	fs.mkdirSync(config.notesDir, { recursive: true });
+}
+
+/**
+ * Append one stamped entry without ever truncating the file, so a concurrent
+ * reader never sees a half-rewritten file and two writers cannot drop or glue
+ * each other's entry.
+ * - No file: write the complete entry to a temp file and link it into place
+ *   with link(2), so the target never exists at zero bytes before its content
+ *   is written.
+ * - File exists (also when empty or blank): append "\n\n" plus the entry in
+ *   one append call.
+ */
+export function appendStampedEntry(filePath: string, stamped: string): void {
+	if (!fs.existsSync(filePath)) {
+		const dir = path.dirname(filePath);
+		const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`);
+		try {
+			fs.writeFileSync(tmpPath, stamped, { encoding: "utf-8", flag: "wx" });
+			fs.linkSync(tmpPath, filePath);
+			return;
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException)?.code;
+			if (code !== "EEXIST" && code !== "EXDEV" && code !== "EPERM" && code !== "ENOTSUP" && code !== "ENOSYS") throw err;
+		} finally {
+			try { fs.unlinkSync(tmpPath); } catch {}
+		}
+	}
+	fs.appendFileSync(filePath, `\n\n${stamped}`, "utf-8");
 }
 
 // --- Scratchpad ---
