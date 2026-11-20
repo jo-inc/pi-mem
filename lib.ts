@@ -25,6 +25,9 @@ export interface MemoryConfig {
 	autocommit: boolean;
 	timezone: string;
 	contextMode: ContextMode;
+	memoryMaxChars: number;
+	deltaMaxChars: number;
+	contextFileMaxChars: number;
 	ancestry: boolean;
 }
 
@@ -34,7 +37,16 @@ export interface FileConfig {
 	searchDirs?: string[];
 	autocommit?: boolean;
 	contextMode?: ContextMode;
+	memoryMaxChars?: number;
+	deltaMaxChars?: number;
+	dailyMaxChars?: number;
+	contextFileMaxChars?: number;
 	ancestry?: boolean;
+}
+
+function charLimit(value: unknown): number | undefined {
+	const n = typeof value === "string" && /^\d+$/.test(value.trim()) ? Number(value) : value;
+	return typeof n === "number" && Number.isSafeInteger(n) && n > 0 ? n : undefined;
 }
 
 export function loadConfigFile(memoryDir: string): FileConfig {
@@ -43,6 +55,10 @@ export function loadConfigFile(memoryDir: string): FileConfig {
 		const parsed = JSON.parse(raw);
 		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
 		const result: FileConfig = {};
+		for (const key of ["memoryMaxChars", "deltaMaxChars", "dailyMaxChars", "contextFileMaxChars"] as const) {
+			const limit = charLimit(parsed[key]);
+			if (limit !== undefined) result[key] = limit;
+		}
 		if (typeof parsed.dailyDir === "string") result.dailyDir = parsed.dailyDir;
 		if (Array.isArray(parsed.contextFiles)) result.contextFiles = parsed.contextFiles.filter((s: unknown) => typeof s === "string");
 		if (Array.isArray(parsed.searchDirs)) result.searchDirs = parsed.searchDirs.filter((s: unknown) => typeof s === "string");
@@ -121,6 +137,10 @@ export function buildConfig(env: Record<string, string | undefined> = process.en
 		searchDirs,
 		autocommit,
 		timezone,
+		memoryMaxChars: charLimit(env.PI_MEMORY_MAX_CHARS) ?? fileConfig.memoryMaxChars ?? MEMORY_BLOCK_MAX_CHARS,
+		deltaMaxChars: charLimit(env.PI_DELTA_MAX_CHARS) ?? charLimit(env.PI_DAILY_MAX_CHARS)
+			?? fileConfig.deltaMaxChars ?? fileConfig.dailyMaxChars ?? DELTA_MAX_CHARS,
+		contextFileMaxChars: charLimit(env.PI_CONTEXT_FILE_MAX_CHARS) ?? fileConfig.contextFileMaxChars ?? CONTEXT_FILE_MAX_CHARS,
 		contextMode,
 		ancestry,
 	};
@@ -1685,11 +1705,12 @@ export function clipToTail(text: string, maxChars: number, nudge: string): strin
 	return tail ? `${nudge}${separator}${tail}` : nudge;
 }
 
-function wrapInjected(body: string): string {
-	return `<pi-mem-injected>\n${body}\n</pi-mem-injected>`;
+function wrapInjected(body: string, maxChars: number): string {
+	const wrapped = `<pi-mem-injected>\n${body}\n</pi-mem-injected>`;
+	return wrapped.length <= maxChars ? wrapped : condenseHead(body, maxChars, DELTA_CLIP_NUDGE);
 }
 
-const WRAP_OVERHEAD = wrapInjected("").length;
+const WRAP_OVERHEAD = wrapInjected("", Infinity).length;
 
 export interface DeltaInput {
 	/** null: this branch has no snapshot yet (session start, or after compaction). */
@@ -1746,7 +1767,7 @@ export function planDelta(input: DeltaInput): DeltaPlan {
 			dailyBudget,
 		) || DELTA_EMPTY_DAILY;
 		const body = [DELTA_SNAPSHOT_INTRO, daily, memoryPart].filter(Boolean).join("\n\n");
-		return { kind: "snapshot", content: wrapInjected(body), baseline: next, revised };
+		return { kind: "snapshot", content: wrapInjected(body, maxChars), baseline: next, revised };
 	}
 
 	const sections: ChangeSection[] = [];
@@ -1760,7 +1781,7 @@ export function planDelta(input: DeltaInput): DeltaPlan {
 	if (sections.length === 0) return { kind: "none", content: "", baseline: next, revised };
 	const budget = maxChars - WRAP_OVERHEAD - DELTA_UPDATE_INTRO.length - 2;
 	const body = `${DELTA_UPDATE_INTRO}\n\n${renderSections(sections, budget, DELTA_CLIP_NUDGE)}`;
-	return { kind: "update", content: wrapInjected(body), baseline: next, revised };
+	return { kind: "update", content: wrapInjected(body, maxChars), baseline: next, revised };
 }
 
 function isTrackedState(v: unknown): v is TrackedState {

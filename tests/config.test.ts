@@ -26,6 +26,26 @@ describe("buildConfig", () => {
 		assert.strictEqual(config.ancestry, false);
 	});
 
+	it("resolves size limits from defaults, file settings, legacy aliases and environment overrides", () => {
+		const dir = makeTempDir();
+		const env = { PI_MEMORY_DIR: dir };
+		try {
+			const limits = (extra = {}) => {
+				const c = buildConfig({ ...env, ...extra });
+				return [c.memoryMaxChars, c.deltaMaxChars, c.contextFileMaxChars];
+			};
+			assert.deepEqual(limits(), [12000, 4000, 12000]);
+			const file = path.join(dir, ".pi-mem.json");
+			fs.writeFileSync(file, JSON.stringify({ memoryMaxChars: 80000, dailyMaxChars: 20000, contextFileMaxChars: 9000 }));
+			assert.deepEqual(limits(), [80000, 20000, 9000]);
+			fs.writeFileSync(file, JSON.stringify({ dailyMaxChars: 20000, deltaMaxChars: 25000 }));
+			assert.deepEqual(limits({ PI_DELTA_MAX_CHARS: "-2" }), [12000, 25000, 12000]);
+			assert.deepEqual(limits({ PI_DAILY_MAX_CHARS: "26000" }), [12000, 26000, 12000]);
+			assert.deepEqual(limits({ PI_MEMORY_MAX_CHARS: "81000", PI_DELTA_MAX_CHARS: "30000",
+				PI_DAILY_MAX_CHARS: "26000", PI_CONTEXT_FILE_MAX_CHARS: "13000" }), [81000, 30000, 13000]);
+		} finally { cleanup(dir); }
+	});
+
 	it("respects PI_MEMORY_DIR override", () => {
 		const config = buildConfig({ HOME: "/home/x", PI_MEMORY_DIR: "/custom/mem" });
 		assert.strictEqual(config.memoryDir, "/custom/mem");

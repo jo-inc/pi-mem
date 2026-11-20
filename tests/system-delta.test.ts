@@ -366,6 +366,32 @@ describe("system-delta handlers", () => {
 		cleanup(tmp);
 	});
 
+	it("applies configured limits to pinned files, the daily snapshot and the next update", async () => {
+		const previous = me;
+		me = makeTempDir();
+		process.env.PI_MEMORY_DIR = me;
+		try {
+			fs.mkdirSync(path.join(me, "daily"));
+			fs.writeFileSync(path.join(me, ".pi-mem.json"), JSON.stringify({ contextMode: "system-delta",
+				contextFiles: ["rules.md"], memoryMaxChars: 80000, dailyMaxChars: 22000, contextFileMaxChars: 15000 }));
+			fs.writeFileSync(path.join(me, "MEMORY.md"), "M".repeat(71852) + "END-MEMORY");
+			fs.writeFileSync(path.join(me, "rules.md"), "R".repeat(13000) + "END-RULES");
+			fs.writeFileSync(todayFile(), "D".repeat(17608) + "END-DAILY");
+			const { fire } = await load();
+			const start = await agentStart(fire);
+			assert.ok(start.section.includes("END-MEMORY") && start.section.includes("END-RULES"));
+			assert.ok(start.result.message.content.includes("D".repeat(17608) + "END-DAILY"));
+			fs.appendFileSync(todayFile(), "\n\n" + "A".repeat(30000) + "END-UPDATE");
+			const update = (await turnEnd(fire)).entries[0].content;
+			assert.ok(update.length > 4000 && update.length <= 22000 && update.includes("END-UPDATE"));
+		} finally {
+			entries.length = 0;
+			cleanup(me);
+			me = previous;
+			process.env.PI_MEMORY_DIR = previous;
+		}
+	});
+
 	it("runs the full session lifecycle without unsaved per-call injection", async () => {
 		const { tools, fire } = await load();
 		await fire("session_start", { reason: "startup" });
